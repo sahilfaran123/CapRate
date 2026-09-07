@@ -284,7 +284,7 @@ export default function Advisor() {
               <span className="text-white text-xs font-bold">AI</span>
             </div>
             <div>
-              <p className="font-semibold text-gray-900 text-sm">FinSync Advisor</p>
+              <p className="font-semibold text-gray-900 text-sm">CapRate Advisor</p>
               <p className="text-xs text-emerald-500 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full inline-block" />
                 Knows your finances
@@ -308,9 +308,9 @@ export default function Advisor() {
                 <div className="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-200">
                   <span className="text-white text-2xl font-bold">AI</span>
                 </div>
-                <h2 className="text-2xl font-bold text-gray-900">FinSync Advisor</h2>
+                <h2 className="text-2xl font-bold text-gray-900">CapRate Advisor</h2>
                 <p className="text-gray-500 mt-2 text-sm max-w-sm mx-auto">
-                  Your personal financial advisor. I have access to all your accounts, investments, and properties.
+                  Your financial data analyst. I know your accounts, investments, and properties — ask me anything about your numbers.
                 </p>
               </div>
 
