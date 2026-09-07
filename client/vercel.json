@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://caprate-server.onrender.com/api/:path*"
+    }
+  ]
+}
