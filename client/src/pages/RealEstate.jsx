@@ -68,7 +68,7 @@ function SummaryBar({ properties }) {
   const metrics = [
     { label: 'Portfolio Value',   value: formatCurrency(totalValue),   color: 'text-indigo-600' },
     { label: 'Total Equity',      value: formatCurrency(totalEquity),  color: 'text-indigo-600' },
-    { label: 'Monthly Cash Flow', value: `${monthlyCF >= 0 ? '+' : ''}${formatCurrency(monthlyCF)}`, color: monthlyCF >= 0 ? 'text-emerald-600' : 'text-red-500', note: anyVerified ? '🏦 includes bank-verified' : null },
+    { label: 'Monthly Cash Flow', value: `${monthlyCF >= 0 ? '+' : ''}${formatCurrency(monthlyCF)}`, color: monthlyCF >= 0 ? 'text-emerald-600' : 'text-red-500', note: anyVerified ? '🏦 includes bank-verified figures' : 'Estimated from your entries' },
     { label: 'Annual Cash Flow',  value: `${monthlyCF >= 0 ? '+' : ''}${formatCurrency(monthlyCF * 12)}`, color: monthlyCF >= 0 ? 'text-emerald-600' : 'text-red-500' },
     { label: 'Properties',        value: properties.length,            color: 'text-gray-900' },
   ];
@@ -173,11 +173,11 @@ function RankingsTable({ properties, onEdit }) {
                     const cf = effCashFlow(p);
                     if (cf == null) return <span className="text-gray-300 text-xs">Not set</span>;
                     return (
-                      <span className="inline-flex items-center gap-1.5 justify-end">
-                        {isVerified(p) && <span title="From real bank transactions" className="text-emerald-600 text-xs">🏦</span>}
+                      <span className="inline-flex flex-col items-end">
                         <span className={`font-semibold ${cf >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                           {cf >= 0 ? '+' : ''}{formatCurrency(cf)}
                         </span>
+                        <SourceBadge verified={isVerified(p)} />
                       </span>
                     );
                   })()}

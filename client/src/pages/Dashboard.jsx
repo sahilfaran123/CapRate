@@ -207,12 +207,21 @@ function PropertyCard({ property, onEdit, onRemove }) {
           const verified = property.effective?.source === 'actual';
           if (eff == null) return null;
           return (
-            <p className="text-sm flex justify-between">
+            <p className="text-sm flex justify-between items-start">
               <span className="text-gray-500">Cash flow</span>
-              <span className="inline-flex items-center gap-1.5">
-                {verified && <span title="From real bank transactions" className="text-xs">🏦</span>}
+              <span className="flex flex-col items-end">
                 <span className={`font-semibold ${eff >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                   {eff >= 0 ? '+' : ''}{formatCurrency(eff)}/mo
+                </span>
+                <span
+                  title={verified
+                    ? 'Averaged from real transactions in the linked bank account'
+                    : 'Calculated from the figures you entered — link a bank account to verify'}
+                  className={`text-[10px] font-medium px-1.5 py-0.5 rounded mt-0.5 ${
+                    verified ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'
+                  }`}
+                >
+                  {verified ? '🏦 Bank-verified' : 'Estimated'}
                 </span>
               </span>
             </p>

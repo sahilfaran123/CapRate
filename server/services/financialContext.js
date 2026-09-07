@@ -162,6 +162,76 @@ export async function buildFinancialContext(userId) {
                    + (inputs.monthlyMaintenance ?? 0);
     const cashFlow = rent - expenses;
 
+    // ── Bank-verified actuals ──
+    // Cached snapshot derived from real transactions on the linked account.
+    // Without this the advisor can only ever see the user's entered estimates,
+    // so it cannot answer "how do my actual returns compare to expected?".
+    const a = prop.actuals && prop.actuals.computedAt ? prop.actuals : null;
+    const hasActual = !!(a && a.monthlyCashFlow != null);
+    const actualData = hasActual ? {
+      monthlyCashFlow: a.monthlyCashFlow,
+      annualCashFlow:  a.annualCashFlow ?? a.monthlyCashFlow * 12,
+      monthlyRent:     a.monthlyRent ?? null,
+      monthsAnalyzed:  a.monthsAnalyzed ?? null,
+      excludedCount:   a.excludedCount ?? 0,
+      accountBalance:  a.currentBalance ?? null,
+      monthsOfReserve: a.monthsOfReserve ?? null,
+      vacancyCount:    a.vacancyCount ?? 0,
+      asOf:            a.computedAt,
+    } : null;
+
+    // Variance between what the user expects and what the bank actually shows
+    const variance = (hasActual && rent > 0)
+      ? { monthly: a.monthlyCashFlow - cashFlow, annual: (a.monthlyCashFlow - cashFlow) * 12 }
+      : null;
+
+    // ── Cash-on-cash return ──
+    // Computed on BOTH bases so the advisor can compare them directly.
+    const cocEstimated = (inputs.downPayment > 0 && rent > 0)
+      ? +(((cashFlow * 12) / inputs.downPayment) * 100).toFixed(1)
+      : null;
+    const cocActual = (inputs.downPayment > 0 && hasActual)
+      ? +((((a.annualCashFlow ?? a.monthlyCashFlow * 12)) / inputs.downPayment) * 100).toFixed(1)
+      : null;
+
+    // ── Cap rate ──
+    // Prefer the owner's real figures over RentCast's market estimate.
+    // NOI excludes the mortgage — cap rate measures the property, not the financing.
+    let capRate = null, capRateSource = null;
+    if (rent > 0 && value > 0) {
+      const operating = (inputs.monthlyHOA ?? 0) + (inputs.monthlyInsurance ?? 0)
+                      + (inputs.monthlyPropertyTax ?? 0) + (inputs.monthlyMaintenance ?? 0);
+      const noi = rent - operating;
+      if (noi > 0) {
+        capRate = +(((noi * 12) / value) * 100).toFixed(2);
+        capRateSource = 'your entered figures';
+      }
+    }
+    if (capRate == null && prop.data?.capRate) {
+      capRate = parseFloat(prop.data.capRate);
+      capRateSource = 'RentCast market estimate';
+    }
+
+    // ── Logged events (vacancies, one-time expenses/income) ──
+    const currentYear = new Date().getFullYear();
+    const yearEvents  = (prop.events || []).filter(e => new Date(e.date).getFullYear() === currentYear);
+    const eventSummary = yearEvents.length ? {
+      count: yearEvents.length,
+      vacancyLoss:   yearEvents.filter(e => e.type === 'vacancy').reduce((s, e) => s + e.amount, 0),
+      oneTimeExpense: yearEvents.filter(e => e.type === 'expense').reduce((s, e) => s + e.amount, 0),
+      oneTimeIncome:  yearEvents.filter(e => e.type === 'income').reduce((s, e) => s + e.amount, 0),
+      items: yearEvents
+        .sort((x, y) => new Date(y.date) - new Date(x.date))
+        .slice(0, 10)
+        .map(e => ({
+          date: new Date(e.date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+          type: e.type,
+          amount: e.amount,
+          description: e.description || null,
+          category: e.category || null,
+        })),
+    } : null;
+
     let appreciation = null;
     if (inputs.purchasePrice && value) appreciation = value - inputs.purchasePrice;
     else if (prop.data?.appreciation) appreciation = prop.data.appreciation;
@@ -205,12 +275,21 @@ export async function buildFinancialContext(userId) {
         total:       expenses || null,
       },
       cashFlow:      rent > 0 ? cashFlow : null,
+      // Bank-verified figures and how they compare to the estimate
+      actual:        actualData,
+      variance,
+      cocEstimated,
+      cocActual,
+      linkedAccount: prop.linkedAccountName || null,
+      isLinked:      !!prop.linkedAccountId,
+      events:        eventSummary,
       purchasePrice: inputs.purchasePrice ?? null,
       downPayment:   inputs.downPayment   ?? null,
       interestRate:  inputs.interestRate  ?? null,
       loanTermYears: inputs.loanTermYears ?? null,
       purchaseDate:  inputs.purchaseDate ? new Date(inputs.purchaseDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : null,
-      capRate:       prop.data?.capRate   ?? null,
+      capRate,
+      capRateSource,
       equity:        equityData,
     });
   }
@@ -330,18 +409,48 @@ function buildSummaryText(d) {
       if (p.appreciation != null) lines.push(`    Appreciation: ${p.appreciation >= 0 ? '+' : ''}${fmt(p.appreciation)}${p.purchaseDate ? ` since ${p.purchaseDate}` : ''}`);
       if (p.purchasePrice) { lines.push(`    Purchase price: ${fmt(p.purchasePrice)}`); lines.push(`    Down payment: ${fmt(p.downPayment)}`); }
       if (p.interestRate) lines.push(`    Mortgage: ${p.interestRate}% / ${p.loanTermYears || 30}-year`);
-      if (p.rent) lines.push(`    Monthly rental income: ${fmt(p.rent)}`);
+      if (p.rent) lines.push(`    Monthly rental income (your entered figure): ${fmt(p.rent)}`);
       const eb = p.expenseBreakdown || {};
       if (eb.total) {
-        lines.push(`    Monthly expenses: ${fmt(eb.total)}`);
+        lines.push(`    Monthly expenses (your entered figures): ${fmt(eb.total)}`);
         if (eb.mortgage)    lines.push(`      - Mortgage: ${fmt(eb.mortgage)}`);
         if (eb.hoa)         lines.push(`      - HOA: ${fmt(eb.hoa)}`);
         if (eb.insurance)   lines.push(`      - Insurance: ${fmt(eb.insurance)}`);
         if (eb.propertyTax) lines.push(`      - Property tax: ${fmt(eb.propertyTax)}`);
         if (eb.maintenance) lines.push(`      - Maintenance: ${fmt(eb.maintenance)}`);
       }
-      if (p.cashFlow != null) { lines.push(`    Net monthly cash flow: ${p.cashFlow >= 0 ? '+' : ''}${fmt(p.cashFlow)}`); lines.push(`    Net annual cash flow: ${p.cashFlow >= 0 ? '+' : ''}${fmt(p.cashFlow * 12)}`); }
-      if (p.capRate) lines.push(`    Cap rate: ${p.capRate}%`);
+
+      // ── ESTIMATED vs ACTUAL ──
+      if (p.cashFlow != null) {
+        lines.push(`    EXPECTED monthly cash flow (from entered figures): ${p.cashFlow >= 0 ? '+' : ''}${fmt(p.cashFlow)}`);
+        lines.push(`    EXPECTED annual cash flow: ${p.cashFlow >= 0 ? '+' : ''}${fmt(p.cashFlow * 12)}`);
+      }
+      if (p.cocEstimated != null) lines.push(`    EXPECTED cash-on-cash return: ${p.cocEstimated}%`);
+
+      if (p.isLinked && p.actual) {
+        lines.push(`    ── Bank-verified actuals (linked account: ${p.linkedAccount || 'connected'}) ──`);
+        lines.push(`    ACTUAL monthly cash flow: ${p.actual.monthlyCashFlow >= 0 ? '+' : ''}${fmt(p.actual.monthlyCashFlow)}`);
+        lines.push(`    ACTUAL annual cash flow: ${p.actual.annualCashFlow >= 0 ? '+' : ''}${fmt(p.actual.annualCashFlow)}`);
+        if (p.actual.monthlyRent != null) lines.push(`    ACTUAL rent received (avg): ${fmt(p.actual.monthlyRent)}/mo`);
+        if (p.cocActual != null) lines.push(`    ACTUAL cash-on-cash return: ${p.cocActual}%`);
+        if (p.variance) {
+          lines.push(`    VARIANCE (actual minus expected): ${p.variance.monthly >= 0 ? '+' : ''}${fmt(p.variance.monthly)}/mo, ${p.variance.annual >= 0 ? '+' : ''}${fmt(p.variance.annual)}/yr`);
+        }
+        if (p.actual.monthsAnalyzed) {
+          lines.push(`    Based on ${p.actual.monthsAnalyzed} complete month(s) of transactions${p.actual.excludedCount ? `, excluding ${p.actual.excludedCount} logged vacancy month(s)` : ''}`);
+        }
+        if (p.actual.accountBalance != null) lines.push(`    Property account balance: ${fmt(p.actual.accountBalance)}`);
+        if (p.actual.monthsOfReserve != null) {
+          lines.push(`    Cash reserve: ${p.actual.monthsOfReserve} months of expenses (6 months recommended)`);
+        }
+        if (p.actual.vacancyCount) lines.push(`    Unresolved missing-rent months detected: ${p.actual.vacancyCount}`);
+      } else if (p.isLinked) {
+        lines.push(`    Bank account linked (${p.linkedAccount || 'connected'}) but not enough transaction history yet for actuals.`);
+      } else {
+        lines.push(`    No bank account linked — figures above are the user's estimates only, not verified against real transactions.`);
+      }
+
+      if (p.capRate) lines.push(`    Cap rate: ${p.capRate}%${p.capRateSource ? ` (${p.capRateSource})` : ''}`);
       if (p.equity) {
         lines.push(`    Equity: ${fmt(p.equity.currentEquity)} (LTV: ${p.equity.ltv}%)`);
         lines.push(`    Remaining mortgage: ${fmt(p.equity.remainingBalance)}`);
@@ -349,10 +458,27 @@ function buildSummaryText(d) {
         lines.push(`    Equity from appreciation: ${fmt(p.equity.equityFromAppreciation)}`);
         lines.push(`    Time owned: ${p.equity.yearsOwned} years`);
       }
+      if (p.events) {
+        lines.push(`    Logged events this year (${p.events.count}):`);
+        if (p.events.vacancyLoss)    lines.push(`      - Vacancy loss: ${fmt(p.events.vacancyLoss)}`);
+        if (p.events.oneTimeExpense) lines.push(`      - One-time expenses: ${fmt(p.events.oneTimeExpense)}`);
+        if (p.events.oneTimeIncome)  lines.push(`      - One-time income: ${fmt(p.events.oneTimeIncome)}`);
+        for (const e of p.events.items) {
+          lines.push(`      - ${e.date} | ${e.type}${e.category ? ` (${e.category})` : ''}: ${fmt(e.amount)}${e.description ? ` — ${e.description}` : ''}`);
+        }
+      }
     }
     lines.push(`  TOTAL RE VALUE: ${fmt(d.totalRealEstate)}`);
     if (d.totalEquity > 0) lines.push(`  TOTAL EQUITY: ${fmt(d.totalEquity)}`);
-    if (d.totalCashFlow !== 0) lines.push(`  TOTAL MONTHLY CASH FLOW: ${d.totalCashFlow >= 0 ? '+' : ''}${fmt(d.totalCashFlow)}`);
+    if (d.totalCashFlow !== 0) lines.push(`  TOTAL EXPECTED MONTHLY CASH FLOW: ${d.totalCashFlow >= 0 ? '+' : ''}${fmt(d.totalCashFlow)}`);
+    const linkedProps = d.realestate.filter(p => p.actual);
+    if (linkedProps.length) {
+      const actualTotal = linkedProps.reduce((s, p) => s + p.actual.monthlyCashFlow, 0);
+      lines.push(`  TOTAL ACTUAL MONTHLY CASH FLOW (${linkedProps.length} of ${d.realestate.length} properties bank-linked): ${actualTotal >= 0 ? '+' : ''}${fmt(actualTotal)}`);
+      const expectedForLinked = linkedProps.reduce((s, p) => s + (p.cashFlow ?? 0), 0);
+      const totalVariance = actualTotal - expectedForLinked;
+      lines.push(`  VARIANCE across linked properties: ${totalVariance >= 0 ? '+' : ''}${fmt(totalVariance)}/mo`);
+    }
   }
   lines.push('');
 
