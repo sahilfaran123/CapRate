@@ -39,7 +39,10 @@ const realEstatePropertySchema = new mongoose.Schema({
   propertyId:     { type: String, required: true },
   address:        { type: String, required: true },
   estimatedValue: { type: Number, default: null },
-  lastRefreshed:  { type: Date,   default: null },
+  lastRefreshed:        { type: Date, default: null },   // last time ANY endpoint refreshed
+  lastValueRefreshed:   { type: Date, default: null },   // /avm/value — weekly
+  lastDetailsRefreshed: { type: Date, default: null },   // /properties — monthly
+  lastRentRefreshed:    { type: Date, default: null },   // /avm/rent/long-term — monthly
   data:           { type: mongoose.Schema.Types.Mixed, default: {} },
   userInputs:     { type: userInputsSchema, default: () => ({}) },
   events:         { type: [propertyEventSchema], default: [] },

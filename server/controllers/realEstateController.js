@@ -4,11 +4,18 @@ import { plaidClient } from '../services/plaidClient.js';
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
-// How long RentCast property data stays fresh before we re-fetch it.
-// Property valuations move slowly, so a weekly refresh keeps data current while
-// cutting RentCast API usage ~7x versus a daily refresh (3 calls per property
-// per refresh: /properties, /avm/value, /avm/rent/long-term).
-const PROPERTY_REFRESH_MS = 7 * ONE_DAY_MS;
+// ── RentCast refresh cadences ────────────────────────────────────────────────
+// Each refresh calls 3 endpoints (value, details, rent) = 3 credits.
+// Splitting cadences so only the value endpoint refreshes weekly cuts usage
+// from 3 calls/refresh to ~1.3 calls/refresh on average — keeping 100 users
+// on the $74/mo Foundation plan instead of the $199/mo Growth plan.
+//
+//  /avm/value          — weekly  (property values shift with the market)
+//  /properties         — monthly (beds/baths/sqft almost never change)
+//  /avm/rent/long-term — monthly (rent estimates are slow-moving)
+const VALUE_REFRESH_MS   = 7  * ONE_DAY_MS;   // weekly
+const DETAILS_REFRESH_MS = 30 * ONE_DAY_MS;   // monthly
+const RENT_REFRESH_MS    = 30 * ONE_DAY_MS;   // monthly
 
 // ─── Amortization Engine ─────────────────────────────────────────────────────
 function remainingBalance(principal, annualRate, termYears, monthsPaid) {
@@ -226,39 +233,98 @@ function buildPropertyResponse(property) {
 // ─── GET /properties ──────────────────────────────────────────────────────────
 export const getProperties = async (req, res, next) => {
   try {
-    // req.userId is set by authenticate middleware (MongoDB _id)
     const user = await User.findById(req.userId);
     if (!user || user.realEstateProperties.length === 0) {
       return res.json({ properties: [], message: 'No properties added' });
     }
 
     const { forceRefresh } = req.query;
-    const now     = new Date();
-    const cutoff  = new Date(now.getTime() - PROPERTY_REFRESH_MS);
-    let apiCalls  = 0;
+    const force = forceRefresh === 'true';
+    const now   = new Date();
+    let apiCalls = 0;
     let cacheHits = 0;
 
-    for (const property of user.realEstateProperties) {
-      const needsRefresh =
-        forceRefresh === 'true' ||
-        !property.lastRefreshed  ||
-        new Date(property.lastRefreshed) < cutoff;
+    const needsEndpointRefresh = (lastRefreshed, ttl) =>
+      force || !lastRefreshed || (now - new Date(lastRefreshed)) > ttl;
 
-      if (needsRefresh && property.provider === 'rentcast') {
-        const addr = property.data?.addressComponents;
-        if (addr) {
-          try {
-            const freshData = await rentcastClient.getPropertyDataByAddress(addr.address, addr.city, addr.state, addr.zipCode);
-            property.data           = freshData;
-            property.estimatedValue = freshData.estimatedValue;
-            property.lastRefreshed  = now;
-            apiCalls++;
-          } catch (err) {
-            console.error(`[Property Cache] ❌ RentCast failed for "${property.address}":`, err.message);
-          }
-        }
-      } else if (!needsRefresh) {
+    for (const property of user.realEstateProperties) {
+      if (property.provider !== 'rentcast') continue;
+      const addr = property.data?.addressComponents;
+      if (!addr) continue;
+
+      const needsValue   = needsEndpointRefresh(property.lastValueRefreshed,   VALUE_REFRESH_MS);
+      const needsDetails = needsEndpointRefresh(property.lastDetailsRefreshed, DETAILS_REFRESH_MS);
+      const needsRent    = needsEndpointRefresh(property.lastRentRefreshed,    RENT_REFRESH_MS);
+
+      if (!needsValue && !needsDetails && !needsRent) {
         cacheHits++;
+        continue;
+      }
+
+      try {
+        const headers = { 'Accept': 'application/json', 'X-Api-Key': process.env.RENTCAST_API_KEY };
+        const baseURL = 'https://api.rentcast.io/v1';
+        const params  = { address: addr.zipCode
+            ? `${addr.address}, ${addr.city}, ${addr.state} ${addr.zipCode}`
+            : `${addr.address}, ${addr.city}, ${addr.state}` };
+
+        // Fire only the endpoints that are actually stale
+        const [valueRes, detailsRes, rentRes] = await Promise.allSettled([
+          needsValue   ? (await import('axios')).default.get(`${baseURL}/avm/value`, { params, headers, timeout: 15000 }) : null,
+          needsDetails ? (await import('axios')).default.get(`${baseURL}/properties`, { params, headers, timeout: 15000 }) : null,
+          needsRent    ? (await import('axios')).default.get(`${baseURL}/avm/rent/long-term`, { params, headers, timeout: 15000 }) : null,
+        ]);
+
+        // Merge fresh data into existing cached data — only overwrite what we fetched
+        const existing = property.data || {};
+
+        if (needsValue && valueRes.status === 'fulfilled' && valueRes.value) {
+          const vd = valueRes.value.data;
+          property.estimatedValue = vd.price || existing.estimatedValue;
+          Object.assign(existing, {
+            estimatedValue:  vd.price || existing.estimatedValue,
+            priceRangeLow:   vd.priceRangeLow  || existing.priceRangeLow,
+            priceRangeHigh:  vd.priceRangeHigh || existing.priceRangeHigh,
+            lastSalePrice:   vd.subjectProperty?.lastSalePrice || existing.lastSalePrice,
+            lastSaleDate:    vd.subjectProperty?.lastSaleDate  || existing.lastSaleDate,
+          });
+          property.lastValueRefreshed = now;
+          apiCalls++;
+        }
+
+        if (needsDetails && detailsRes.status === 'fulfilled' && detailsRes.value) {
+          const dd = detailsRes.value.data;
+          Object.assign(existing, {
+            bedrooms:      dd.bedrooms      ?? existing.bedrooms,
+            bathrooms:     dd.bathrooms     ?? existing.bathrooms,
+            squareFootage: dd.squareFootage ?? existing.squareFootage,
+            lotSize:       dd.lotSize       ?? existing.lotSize,
+            propertyType:  dd.propertyType  ?? existing.propertyType,
+            yearBuilt:     dd.yearBuilt     ?? existing.yearBuilt,
+            propertyTaxes: dd.taxAssessments ?? existing.propertyTaxes,
+            hoa:           dd.hoa           ?? existing.hoa,
+          });
+          property.lastDetailsRefreshed = now;
+          apiCalls++;
+        }
+
+        if (needsRent && rentRes.status === 'fulfilled' && rentRes.value) {
+          const rd = rentRes.value.data;
+          Object.assign(existing, {
+            estimatedMonthlyRent: rd.rent          ?? existing.estimatedMonthlyRent,
+            rentalValue:          rd.rent          ?? existing.rentalValue,
+            rentRangeLow:         rd.rentRangeLow  ?? existing.rentRangeLow,
+            rentRangeHigh:        rd.rentRangeHigh ?? existing.rentRangeHigh,
+          });
+          property.lastRentRefreshed = now;
+          apiCalls++;
+        }
+
+        property.data         = existing;
+        property.lastRefreshed = now;
+
+      } catch (err) {
+        console.error(`[RentCast] ❌ Refresh failed for "${property.address}":`, err.message);
       }
     }
 
@@ -319,7 +385,10 @@ export const addProperty = async (req, res, next) => {
       propertyId,
       address:        fullAddress,
       estimatedValue: data.estimatedValue,
-      lastRefreshed:  new Date(),
+      lastRefreshed:        new Date(),
+      lastValueRefreshed:   new Date(),
+      lastDetailsRefreshed: new Date(),
+      lastRentRefreshed:    new Date(),
       data,
     });
 
@@ -387,7 +456,10 @@ export const refreshProperty = async (req, res, next) => {
     const freshData = await rentcastClient.getPropertyDataByAddress(addr.address, addr.city, addr.state, addr.zipCode);
     property.data           = freshData;
     property.estimatedValue = freshData.estimatedValue;
-    property.lastRefreshed  = new Date();
+    property.lastRefreshed        = new Date();
+    property.lastValueRefreshed   = new Date();
+    property.lastDetailsRefreshed = new Date();
+    property.lastRentRefreshed    = new Date();
     await user.save();
 
     res.json({ success: true, property: buildPropertyResponse(property) });
