@@ -7,7 +7,7 @@ import remarkGfm from 'remark-gfm';
  * Supports GitHub-flavored Markdown (tables, strikethrough, task lists).
  *
  * Styling is scoped here via custom component renderers so the output
- * matches FinSync's indigo/gray palette and stays readable inside a
+ * matches CapRate's indigo/gray palette and stays readable inside a
  * chat bubble. Partial/streaming Markdown renders safely — react-markdown
  * tolerates incomplete syntax (e.g. a half-written table) without crashing.
  */

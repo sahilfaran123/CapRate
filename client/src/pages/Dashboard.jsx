@@ -540,7 +540,7 @@ export default function Dashboard() {
                 <span className="text-sm font-medium text-gray-800">{item.name || item}</span>
                 <button
                   onClick={async () => {
-                    if (!window.confirm(`Remove ${item.name || item} from FinSync? This frees up a connection slot.`)) return;
+                    if (!window.confirm(`Remove ${item.name || item} from CapRate? This frees up a connection slot.`)) return;
                     try {
                       await removeItem(item.itemId);
                       setExpiredConnections(prev => prev.filter(e => (e.itemId || e) !== (item.itemId || item)));
@@ -569,7 +569,7 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {/* Real Estate — portfolio first (FinSync is built for real estate investors) */}
+      {/* Real Estate — portfolio first (CapRate is built for real estate investors) */}
       <section>
         <SectionHeader
           title="Real Estate Portfolio"

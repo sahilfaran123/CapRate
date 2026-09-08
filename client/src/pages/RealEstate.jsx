@@ -925,7 +925,7 @@ function BankingTab({ property, onChanged }) {
           {/* What we detected — transparency so the user can sanity-check it */}
           {fin.detection && (
             <div className="bg-gray-50 rounded-xl p-4 text-sm">
-              <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-2">What FinSync Detected</p>
+              <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-2">What CapRate Detected</p>
               {fin.detection.mortgage ? (
                 <p className="flex justify-between items-baseline">
                   <span className="text-gray-500">Mortgage payment</span>
@@ -1222,7 +1222,7 @@ function TaxExport({ properties }) {
       // Trailing note so the figures are not mistaken for filing-ready values
       rows.push([]);
       rows.push(['"NOTE: Informational summary only, not tax advice. Income reflects bank deposits where a"']);
-      rows.push(['"bank account is linked; expenses reflect the figures entered in FinSync. The mortgage column"']);
+      rows.push(['"bank account is linked; expenses reflect the figures entered in CapRate. The mortgage column"']);
       rows.push(['"is the total payment — only the interest portion is deductible. Verify all figures with a"']);
       rows.push(['"qualified tax professional before filing."']);
       const csv  = rows.map(r => r.join(',')).join('\n');
@@ -1230,7 +1230,7 @@ function TaxExport({ properties }) {
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
       a.href     = url;
-      a.download = `finsync-tax-summary-${year}.csv`;
+      a.download = `caprate-tax-summary-${year}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (_) {} finally {
@@ -1284,7 +1284,7 @@ function TaxExport({ properties }) {
         <p className="text-xs text-amber-800 leading-relaxed">
           These figures are a starting point for your accountant, not filing-ready values.
           Rental income reflects bank deposits where an account is linked; expenses reflect the
-          figures you entered in FinSync. The mortgage column shows the total payment — only the
+          figures you entered in CapRate. The mortgage column shows the total payment — only the
           interest portion is deductible, and your lender&apos;s year-end statement is the correct
           source for that split. Verify everything with a qualified tax professional before filing.
         </p>

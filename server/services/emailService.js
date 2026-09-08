@@ -33,7 +33,7 @@ export async function sendPasswordResetEmail(toEmail, resetToken) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Reset Your FinSync Password</title>
+  <title>Reset Your CapRate Password</title>
 </head>
 <body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 20px;">
@@ -47,7 +47,7 @@ export async function sendPasswordResetEmail(toEmail, resetToken) {
               <div style="display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;background:rgba(255,255,255,0.2);border-radius:12px;margin-bottom:12px;">
                 <span style="color:#ffffff;font-size:20px;font-weight:700;">FS</span>
               </div>
-              <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">FinSync</h1>
+              <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">CapRate</h1>
             </td>
           </tr>
 
@@ -56,7 +56,7 @@ export async function sendPasswordResetEmail(toEmail, resetToken) {
             <td style="padding:40px 40px 32px;">
               <h2 style="margin:0 0 12px;color:#111827;font-size:20px;font-weight:600;">Reset your password</h2>
               <p style="margin:0 0 24px;color:#6b7280;font-size:15px;line-height:1.6;">
-                We received a request to reset the password for your FinSync account associated with <strong style="color:#374151;">${toEmail}</strong>.
+                We received a request to reset the password for your CapRate account associated with <strong style="color:#374151;">${toEmail}</strong>.
               </p>
               <p style="margin:0 0 28px;color:#6b7280;font-size:15px;line-height:1.6;">
                 Click the button below to set a new password. This link expires in <strong style="color:#374151;">15 minutes</strong> and can only be used once.
@@ -94,7 +94,7 @@ export async function sendPasswordResetEmail(toEmail, resetToken) {
           <tr>
             <td style="background:#f9fafb;padding:24px 40px;border-top:1px solid #f3f4f6;">
               <p style="margin:0;color:#9ca3af;font-size:12px;text-align:center;">
-                © ${new Date().getFullYear()} FinSync · Your complete financial picture
+                © ${new Date().getFullYear()} CapRate · Real estate portfolio intelligence
               </p>
             </td>
           </tr>
@@ -107,7 +107,7 @@ export async function sendPasswordResetEmail(toEmail, resetToken) {
 </html>`;
 
   const text = `
-Reset your FinSync password
+Reset your CapRate password
 
 We received a request to reset the password for ${toEmail}.
 
@@ -116,15 +116,15 @@ ${resetUrl}
 
 If you didn't request this, ignore this email — your password won't change.
 
-© ${new Date().getFullYear()} FinSync
+© ${new Date().getFullYear()} CapRate
 `.trim();
 
   try {
     const transporter = createTransporter();
     const info = await transporter.sendMail({
-      from:    `"FinSync" <${from}>`,
+      from:    `"CapRate" <${from}>`,
       to:      toEmail,
-      subject: 'Reset your FinSync password',
+      subject: 'Reset your CapRate password',
       text,
       html,
     });
@@ -156,17 +156,17 @@ export async function sendWelcomeEmail(toEmail, name) {
 
           <tr>
             <td style="background:#4f46e5;padding:32px;text-align:center;">
-              <span style="color:#ffffff;font-size:24px;font-weight:700;">FinSync</span>
+              <span style="color:#ffffff;font-size:24px;font-weight:700;">CapRate</span>
             </td>
           </tr>
 
           <tr>
             <td style="padding:40px;">
               <h2 style="margin:0 0 16px;color:#111827;font-size:20px;font-weight:600;">
-                Welcome to FinSync${name ? `, ${name}` : ''}! 👋
+                Welcome to CapRate${name ? `, ${name}` : ''}! 👋
               </h2>
               <p style="margin:0 0 16px;color:#6b7280;font-size:15px;line-height:1.6;">
-                Your account is ready. Here's how to get the most out of FinSync:
+                Your account is ready. Here's how to get the most out of CapRate:
               </p>
 
               <table cellpadding="0" cellspacing="0" style="margin:0 0 28px;width:100%;">
@@ -207,7 +207,7 @@ export async function sendWelcomeEmail(toEmail, name) {
           <tr>
             <td style="background:#f9fafb;padding:24px 40px;border-top:1px solid #f3f4f6;">
               <p style="margin:0;color:#9ca3af;font-size:12px;text-align:center;">
-                © ${new Date().getFullYear()} FinSync · Your complete financial picture
+                © ${new Date().getFullYear()} CapRate · Real estate portfolio intelligence
               </p>
             </td>
           </tr>
@@ -222,9 +222,9 @@ export async function sendWelcomeEmail(toEmail, name) {
   try {
     const transporter = createTransporter();
     await transporter.sendMail({
-      from:    `"FinSync" <${from}>`,
+      from:    `"CapRate" <${from}>`,
       to:      toEmail,
-      subject: 'Welcome to FinSync 🎉',
+      subject: 'Welcome to CapRate 🎉',
       html,
     });
     logger.info('Welcome email sent', { to: toEmail });

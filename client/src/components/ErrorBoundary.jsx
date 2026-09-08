@@ -42,7 +42,7 @@ export default class ErrorBoundary extends Component {
               </div>
               <h2 className="text-xl font-bold text-gray-900 mb-2">Something went wrong</h2>
               <p className="text-gray-500 text-sm mb-6">
-                FinSync encountered an unexpected error. Try refreshing the page.
+                CapRate encountered an unexpected error. Try refreshing the page.
               </p>
               <div className="flex gap-3 justify-center">
                 <button

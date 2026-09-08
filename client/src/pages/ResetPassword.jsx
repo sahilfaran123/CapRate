@@ -71,7 +71,7 @@ export default function ResetPassword() {
           <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-600 rounded-2xl mb-4 shadow-lg shadow-indigo-200">
             <span className="text-white font-bold text-2xl">FS</span>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">FinSync</h1>
+          <h1 className="text-3xl font-bold text-gray-900">CapRate</h1>
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8">

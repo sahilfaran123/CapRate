@@ -12,7 +12,7 @@ export const createLinkToken = async (req, res, next) => {
   try {
     const response = await plaidClient.linkTokenCreate({
       user:          { client_user_id: toPlaidUserId(req.userId) },
-      client_name:   'FinSync',
+      client_name:   'CapRate',
       products:      [Products.Transactions, Products.Investments],
       country_codes: [CountryCode.Us],
       language:      'en',
@@ -152,7 +152,15 @@ export const removeItem = async (req, res, next) => {
     try {
       await plaidClient.itemRemove({ access_token: item.accessToken });
       invalidatePlaidCache(item.accessToken);
-    } catch (_) { /* Token may already be invalid */ }
+    } catch (err) {
+      // Log the error so we know if Plaid rejected the removal,
+      // but still clean up locally — a stale token in our DB is worse
+      // than an orphaned item on Plaid's side.
+      const code = err.response?.data?.error_code;
+      console.error(`[Plaid] itemRemove failed for ${item.institutionName}: ${code || err.message}`);
+      // Still clear the cache since we're removing it locally
+      invalidatePlaidCache(item.accessToken);
+    }
 
     user.plaidItems = user.plaidItems.filter(i => i.itemId !== itemId);
     await user.save();

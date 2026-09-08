@@ -142,7 +142,7 @@ export default function Login() {
           <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-600 rounded-2xl mb-4 shadow-lg shadow-indigo-200">
             <span className="text-white font-bold text-2xl">FS</span>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">FinSync</h1>
+          <h1 className="text-3xl font-bold text-gray-900">CapRate</h1>
           <p className="text-gray-500 mt-2 text-sm">Your complete financial picture</p>
         </div>
 
@@ -197,7 +197,7 @@ export default function Login() {
           {mode === 'register' && (
             <>
               <h2 className="text-xl font-bold text-gray-900 mb-1">Create account</h2>
-              <p className="text-sm text-gray-500 mb-6">Get started with FinSync</p>
+              <p className="text-sm text-gray-500 mb-6">Get started with CapRate</p>
 
               <form onSubmit={handleRegister} className="space-y-4">
                 <Field name="name"            label="Full name"        type="text"     placeholder="Sahil Faran"                              value={form.name}            onChange={handleChange} />

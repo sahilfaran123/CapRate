@@ -66,7 +66,7 @@ const startServer = async () => {
   await connectDB();
   initializeSnapshotScheduler();
   app.listen(PORT, '0.0.0.0', () => {
-    logger.info('FinSync API started', { port: PORT, env: process.env.NODE_ENV || 'development' });
+    logger.info('CapRate API started', { port: PORT, env: process.env.NODE_ENV || 'development' });
   });
 };
 
