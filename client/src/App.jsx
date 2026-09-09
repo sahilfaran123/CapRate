@@ -10,6 +10,8 @@ import DealAnalyzer   from './pages/DealAnalyzer.jsx';
 import Login          from './pages/Login.jsx';
 import ResetPassword  from './pages/ResetPassword.jsx';
 import ErrorBoundary  from './components/ErrorBoundary.jsx';
+import TermsOfService from './pages/TermsOfService.jsx';
+import PrivacyPolicy  from './pages/PrivacyPolicy.jsx';
 
 function AppRoutes() {
   const { userId, loading } = useUser();
@@ -33,6 +35,8 @@ function AppRoutes() {
     return (
       <Routes>
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/terms"          element={<TermsOfService />} />
+        <Route path="/privacy"        element={<PrivacyPolicy />} />
         <Route path="*"              element={<Login />} />
       </Routes>
     );
@@ -56,6 +60,8 @@ function AppRoutes() {
               <Route path="/real-estate"   element={<RealEstate />} />
               <Route path="/deal-analyzer" element={<DealAnalyzer />} />
               <Route path="/settings"      element={<Settings />} />
+              <Route path="/terms"         element={<TermsOfService />} />
+              <Route path="/privacy"       element={<PrivacyPolicy />} />
               <Route path="*"              element={<Navigate to="/" replace />} />
             </Routes>
           </div>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useUser } from '../context/UserContext.jsx';
+import { Link } from 'react-router-dom';
 
 export default function Settings() {
   const { userId, logout } = useUser();
@@ -130,6 +131,15 @@ export default function Settings() {
             </div>
           </div>
         )}
+
+        {/* Legal */}
+        <div className="border-t border-gray-200 pt-5 mt-2">
+          <p className="text-xs text-gray-400">
+            <Link to="/terms" className="hover:text-indigo-600 hover:underline">Terms of Service</Link>
+            <span className="mx-2">·</span>
+            <Link to="/privacy" className="hover:text-indigo-600 hover:underline">Privacy Policy</Link>
+          </p>
+        </div>
       </div>
     </div>
   );

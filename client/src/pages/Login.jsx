@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useUser } from '../context/UserContext.jsx';
+import { Link } from 'react-router-dom';
 
 // ── Field component defined OUTSIDE Login to prevent re-mount on every keystroke ──
 function Field({ name, label, type = 'text', placeholder, hint, value, onChange }) {
@@ -285,6 +286,14 @@ export default function Login() {
             </>
           )}
         </div>
+
+        {/* Legal footer — must be reachable before sign-up */}
+        <p className="mt-6 text-center text-xs text-gray-400 leading-relaxed">
+          By creating an account you agree to our{' '}
+          <Link to="/terms" className="text-indigo-600 hover:underline">Terms of Service</Link>
+          {' '}and{' '}
+          <Link to="/privacy" className="text-indigo-600 hover:underline">Privacy Policy</Link>.
+        </p>
 
         {/* Feature bullets */}
         <div className="mt-8 grid grid-cols-3 gap-3 text-center">
