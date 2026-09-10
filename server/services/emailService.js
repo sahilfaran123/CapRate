@@ -1,31 +1,25 @@
-import nodemailer from 'nodemailer';
-import logger     from '../utils/logger.js';
+import { Resend } from 'resend';
+import logger    from '../utils/logger.js';
 
 /**
- * Email Service using Gmail via Nodemailer.
- * Uses an App Password (not your real Gmail password).
- * Configure GMAIL_USER and GMAIL_APP_PASSWORD in .env
+ * Email Service using Resend.
+ * Set RESEND_API_KEY in your environment variables.
+ * Emails are sent from onboarding@resend.dev on the free plan.
+ * Once you verify a custom domain (e.g. getcaprate.app), update FROM_EMAIL.
  */
 
-function createTransporter() {
-  const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
+const FROM_EMAIL = process.env.FROM_EMAIL || 'CapRate <onboarding@resend.dev>';
 
-  if (!user || !pass) {
-    throw new Error('GMAIL_USER and GMAIL_APP_PASSWORD must be set in .env');
-  }
-
-  return nodemailer.createTransport({
-    service: 'gmail',
-    auth:    { user, pass },
-  });
+function getClient() {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) throw new Error('RESEND_API_KEY must be set in environment variables');
+  return new Resend(apiKey);
 }
 
 // ─── Send Password Reset Email ────────────────────────────────────────────────
 export async function sendPasswordResetEmail(toEmail, resetToken) {
   const appUrl   = process.env.APP_URL || 'http://localhost:5173';
   const resetUrl = `${appUrl}/reset-password?token=${resetToken}&email=${encodeURIComponent(toEmail)}`;
-  const from     = process.env.GMAIL_USER;
 
   const html = `
 <!DOCTYPE html>
@@ -45,7 +39,7 @@ export async function sendPasswordResetEmail(toEmail, resetToken) {
           <tr>
             <td style="background:#4f46e5;padding:32px;text-align:center;">
               <div style="display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;background:rgba(255,255,255,0.2);border-radius:12px;margin-bottom:12px;">
-                <span style="color:#ffffff;font-size:20px;font-weight:700;">FS</span>
+                <span style="color:#ffffff;font-size:20px;font-weight:700;">CR</span>
               </div>
               <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">CapRate</h1>
             </td>
@@ -120,15 +114,16 @@ If you didn't request this, ignore this email — your password won't change.
 `.trim();
 
   try {
-    const transporter = createTransporter();
-    const info = await transporter.sendMail({
-      from:    `"CapRate" <${from}>`,
+    const resend = getClient();
+    const { data, error } = await resend.emails.send({
+      from:    FROM_EMAIL,
       to:      toEmail,
       subject: 'Reset your CapRate password',
       text,
       html,
     });
-    logger.info('Password reset email sent', { to: toEmail, messageId: info.messageId });
+    if (error) throw new Error(error.message);
+    logger.info('Password reset email sent', { to: toEmail, id: data?.id });
     return { success: true };
   } catch (err) {
     logger.error('Failed to send password reset email', { to: toEmail, error: err.message });
@@ -139,7 +134,6 @@ If you didn't request this, ignore this email — your password won't change.
 // ─── Send Welcome Email ───────────────────────────────────────────────────────
 export async function sendWelcomeEmail(toEmail, name) {
   const appUrl = process.env.APP_URL || 'http://localhost:5173';
-  const from   = process.env.GMAIL_USER;
 
   const html = `
 <!DOCTYPE html>
@@ -147,6 +141,7 @@ export async function sendWelcomeEmail(toEmail, name) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to CapRate</title>
 </head>
 <body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 20px;">
@@ -156,7 +151,10 @@ export async function sendWelcomeEmail(toEmail, name) {
 
           <tr>
             <td style="background:#4f46e5;padding:32px;text-align:center;">
-              <span style="color:#ffffff;font-size:24px;font-weight:700;">CapRate</span>
+              <div style="display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;background:rgba(255,255,255,0.2);border-radius:12px;margin-bottom:12px;">
+                <span style="color:#ffffff;font-size:20px;font-weight:700;">CR</span>
+              </div>
+              <span style="display:block;color:#ffffff;font-size:24px;font-weight:700;">CapRate</span>
             </td>
           </tr>
 
@@ -171,10 +169,10 @@ export async function sendWelcomeEmail(toEmail, name) {
 
               <table cellpadding="0" cellspacing="0" style="margin:0 0 28px;width:100%;">
                 ${[
-                  ['🏦', 'Connect your bank accounts', 'Link checking, savings, and credit cards via Plaid'],
-                  ['📈', 'Add investment accounts', 'Track your portfolio performance and holdings'],
-                  ['🏠', 'Add your properties', 'Track real estate values, cash flow, and equity'],
-                  ['🤖', 'Ask the AI Advisor', 'Get personalized insights about your finances'],
+                  ['🏠', 'Add your properties', 'Track real estate values, equity, and cash flow automatically'],
+                  ['🏦', 'Link a dedicated bank account', 'Compare your estimated returns against what actually hits your account'],
+                  ['📈', 'Connect investment accounts', 'See your full net worth in one place — real estate and portfolio together'],
+                  ['🤖', 'Ask the AI Advisor', 'Get answers about your cap rate, cash-on-cash return, and portfolio performance'],
                 ].map(([icon, title, desc]) => `
                 <tr>
                   <td style="padding:12px 0;border-bottom:1px solid #f3f4f6;">
@@ -220,14 +218,15 @@ export async function sendWelcomeEmail(toEmail, name) {
 </html>`;
 
   try {
-    const transporter = createTransporter();
-    await transporter.sendMail({
-      from:    `"CapRate" <${from}>`,
+    const resend = getClient();
+    const { data, error } = await resend.emails.send({
+      from:    FROM_EMAIL,
       to:      toEmail,
       subject: 'Welcome to CapRate 🎉',
       html,
     });
-    logger.info('Welcome email sent', { to: toEmail });
+    if (error) throw new Error(error.message);
+    logger.info('Welcome email sent', { to: toEmail, id: data?.id });
     return { success: true };
   } catch (err) {
     // Welcome email failure is non-critical — log but don't throw
