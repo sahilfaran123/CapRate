@@ -32,15 +32,19 @@ function StatCard({ label, value, sub, color = 'text-gray-900' }) {
 }
 
 // ─── Plaid Link Button ───────────────────────────────────────────────────────
-function ConnectBankButton({ onSuccess }) {
+/**
+ * Single Plaid Link instance shared across the whole Dashboard.
+ *
+ * Plaid's script warns when Link is embedded more than once per page, so the
+ * hook is mounted ONCE here and the resulting `connect` handler is passed to
+ * however many buttons need it. The token is still created lazily on click so
+ * no Plaid script loads for users who never connect an account.
+ */
+function useConnectAccount(onSuccess) {
   const [linkToken, setLinkToken] = useState(null);
   const [loading,   setLoading]   = useState(false);
 
-  // Create the link token lazily when the user clicks, not on every mount.
-  // Eager creation (useEffect on mount) caused Plaid's script to be injected
-  // on every Dashboard visit, triggering the "embedded more than once" warning
-  // when the user navigated away and back.
-  const handleClick = async () => {
+  const connect = async () => {
     if (loading) return;
     setLoading(true);
     try {
@@ -68,21 +72,27 @@ function ConnectBankButton({ onSuccess }) {
     },
   });
 
-  // Once the token is ready and Plaid Link is initialized, open it automatically
+  // Open Link as soon as the token is ready
   useEffect(() => {
     if (ready && linkToken) {
       open();
       setLoading(false);
+      setLinkToken(null);   // reset so a later click creates a fresh token
     }
   }, [ready, linkToken, open]);
 
+  return { connect, loading };
+}
+
+/** Presentational button — no Plaid hook of its own. */
+function ConnectButton({ onClick, loading, label, variant = 'primary' }) {
+  const styles = variant === 'primary'
+    ? 'btn-primary text-sm disabled:opacity-70'
+    : 'text-sm font-medium text-indigo-600 border border-indigo-200 rounded-lg px-4 py-2 hover:bg-indigo-50 transition-colors disabled:opacity-70';
+
   return (
-    <button
-      onClick={handleClick}
-      disabled={loading}
-      className="btn-primary text-sm disabled:opacity-70"
-    >
-      {loading ? 'Loading…' : '+ Connect Account'}
+    <button onClick={onClick} disabled={loading} className={styles}>
+      {loading ? 'Loading…' : label}
     </button>
   );
 }
@@ -483,6 +493,9 @@ export default function Dashboard() {
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
+  // One Plaid Link instance for the entire Dashboard
+  const { connect, loading: connecting } = useConnectAccount(loadAll);
+
   // ── Net worth ──
   const bankTotal   = bankAccounts.reduce((s, a) => s + (a.balances?.current || 0), 0);
   const investTotal = investAccounts.reduce((s, a) => s + (a.balances?.current || 0), 0);
@@ -612,13 +625,18 @@ export default function Dashboard() {
       <section>
         <SectionHeader
           title="Bank Accounts"
-          action={<ConnectBankButton onSuccess={loadAll} />}
+          action={<ConnectButton onClick={connect} loading={connecting} label="+ Connect Bank" />}
         />
         <ErrorBoundary section="Bank Accounts">
           {bankAccounts.length === 0 ? (
-            <div className="card text-center py-12 text-gray-400">
-              <p className="text-lg mb-1">No accounts connected</p>
-              <p className="text-sm">Click "Connect Account" to link your bank.</p>
+            <div className="card text-center py-12">
+              <div className="text-3xl mb-3">🏦</div>
+              <p className="text-lg font-medium text-gray-700 mb-1">No bank accounts connected</p>
+              <p className="text-sm text-gray-400 max-w-sm mx-auto mb-5">
+                Link a checking, savings, or credit card account to track balances and spending.
+                Connect the account a property pays from to compare estimated and actual cash flow.
+              </p>
+              <ConnectButton onClick={connect} loading={connecting} label="+ Connect Bank" />
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -630,19 +648,34 @@ export default function Dashboard() {
         </ErrorBoundary>
       </section>
 
-      {/* Investments */}
-      {investAccounts.length > 0 && (
-        <section>
-          <SectionHeader title="Investment Accounts" />
-          <ErrorBoundary section="Investment Accounts">
+      {/* Investments — always rendered so the feature is discoverable even
+          before any brokerage account has been connected. */}
+      <section>
+        <SectionHeader
+          title="Investment Accounts"
+          action={<ConnectButton onClick={connect} loading={connecting} label="+ Connect Brokerage" variant="secondary" />}
+        />
+        <ErrorBoundary section="Investment Accounts">
+          {investAccounts.length === 0 ? (
+            <div className="card text-center py-12">
+              <div className="text-3xl mb-3">📈</div>
+              <p className="text-lg font-medium text-gray-700 mb-1">No investment accounts connected</p>
+              <p className="text-sm text-gray-400 max-w-sm mx-auto mb-5">
+                Connect a brokerage or retirement account — Fidelity, Schwab, Robinhood, Vanguard and
+                most major providers are supported — to see your holdings and returns alongside your
+                real estate in one net worth picture.
+              </p>
+              <ConnectButton onClick={connect} loading={connecting} label="+ Connect Brokerage" variant="secondary" />
+            </div>
+          ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {investAccounts.map(a => (
                 <InvestmentCard key={a.account_id} account={a} navigate={navigate} />
               ))}
             </div>
-          </ErrorBoundary>
-        </section>
-      )}
+          )}
+        </ErrorBoundary>
+      </section>
 
       {/* Modals */}
       {showAddProperty && (
