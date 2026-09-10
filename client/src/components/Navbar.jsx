@@ -29,7 +29,7 @@ export default function Navbar() {
           <div className="flex items-center gap-8">
             <NavLink to="/" className="flex items-center gap-2">
               <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-                <span className="text-white text-xs font-bold">FS</span>
+                <span className="text-white text-xs font-bold">CR</span>
               </div>
               <span className="font-bold text-gray-900 text-lg">CapRate</span>
             </NavLink>

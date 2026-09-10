@@ -132,7 +132,9 @@ const userSchema = new mongoose.Schema({
 });
 
 // ── Indexes ──────────────────────────────────────────────────────────────────
-userSchema.index({ email: 1 }, { unique: true });
+// Note: email uniqueness is enforced by { unique: true } on the field definition above.
+// A separate userSchema.index({ email: 1 }) is intentionally omitted to avoid the
+// duplicate index warning Mongoose emits when both are present.
 
 // ── Hooks ────────────────────────────────────────────────────────────────────
 userSchema.pre('save', function (next) {
