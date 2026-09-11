@@ -24,6 +24,11 @@ import advisorRoutes       from './routes/advisor.js';
 import logger from './utils/logger.js';
 
 const app  = express();
+
+// Render (and most cloud platforms) sit behind a reverse proxy.
+// Without this, Express sees 127.0.0.1 for every user and rate limiting
+// cannot identify users correctly.
+app.set('trust proxy', 1);
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
 // ── Security middleware ───────────────────────────────────────────────────────
