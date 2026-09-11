@@ -295,16 +295,51 @@ export async function buildFinancialContext(userId) {
   }
 
   // ── Totals ────────────────────────────────────────────────────────────────
-  const totalBanking     = context.banking.reduce((s, a) => s + a.balance, 0);
+  // Two net worth figures, matching the Dashboard exactly:
+  //   grossAssetValue — face value of everything owned, debt ignored
+  //   netWorth        — equity-adjusted, minus card/loan debt (the real one)
+  //
+  // Plaid reports credit-card and loan balances as POSITIVE amounts owed, so
+  // they are split out of banking rather than summed into it — otherwise debt
+  // would increase net worth. Mortgage-subtype loans are skipped because each
+  // property's equity already nets out its mortgage.
+  const isLiability = (a) => a.type === 'credit' || a.type === 'loan';
+  const isMortgage  = (a) => a.type === 'loan' && /mortgage/i.test(a.subtype || '');
+
+  const cashAccounts = context.banking.filter(a => !isLiability(a));
+  const debtAccounts = context.banking.filter(a => isLiability(a) && !isMortgage(a));
+
+  const totalBanking     = cashAccounts.reduce((s, a) => s + a.balance, 0);
   const totalInvestments = context.investments.reduce((s, a) => s + a.balance, 0);
   const totalRealEstate  = context.realestate.reduce((s, p) => s + p.value, 0);
-  const netWorth         = totalBanking + totalInvestments + totalRealEstate;
+  const accountDebt      = debtAccounts.reduce((s, a) => s + a.balance, 0);
   const totalCashFlow    = context.realestate.reduce((s, p) => s + (p.cashFlow ?? 0), 0);
-  const totalEquity      = context.realestate.reduce((s, p) => s + (p.equity?.currentEquity || 0), 0);
+
+  // Equity per property, falling back to full value when the mortgage is
+  // unknown. An all-cash purchase legitimately has no equity object, so it is
+  // not counted as missing data.
+  let totalEquity = 0;
+  let propsMissingEquity = 0;
+  for (const p of context.realestate) {
+    const equity = p.equity?.currentEquity;
+    if (equity != null) {
+      totalEquity += equity;
+    } else {
+      totalEquity += p.value || 0;
+      const isCashPurchase = p.purchasePrice > 0 && p.downPayment >= p.purchasePrice;
+      if (!isCashPurchase) propsMissingEquity++;
+    }
+  }
+
+  const mortgageDebt     = Math.max(0, totalRealEstate - totalEquity);
+  const totalDebt        = accountDebt + mortgageDebt;
+  const grossAssetValue  = totalBanking + totalInvestments + totalRealEstate;
+  const netWorth         = totalBanking + totalInvestments + totalEquity - accountDebt;
 
   const summary = buildSummaryText({
-    netWorth, totalBanking, totalInvestments, totalRealEstate,
+    netWorth, grossAssetValue, totalBanking, totalInvestments, totalRealEstate,
     totalCashFlow, totalEquity,
+    accountDebt, mortgageDebt, totalDebt, propsMissingEquity, debtAccounts,
     monthlyIncome:   Math.round(monthlyIncome),
     monthlyExpenses: Math.round(monthlyExpenses),
     weeklyIncome:    Math.round(weeklyIncome),
@@ -321,7 +356,7 @@ export async function buildFinancialContext(userId) {
 
   
 
-  return { summary, data: { netWorth, totalBanking, totalInvestments, totalRealEstate, totalCashFlow, totalEquity, banking: context.banking, investments: context.investments, holdings: context.holdings, realestate: context.realestate, errors: context.errors } };
+  return { summary, data: { netWorth, grossAssetValue, totalBanking, totalInvestments, totalRealEstate, totalCashFlow, totalEquity, accountDebt, mortgageDebt, totalDebt, propsMissingEquity, banking: context.banking, investments: context.investments, holdings: context.holdings, realestate: context.realestate, errors: context.errors } };
 }
 
 function buildSummaryText(d) {
@@ -329,29 +364,59 @@ function buildSummaryText(d) {
   const lines = [];
 
   lines.push('═══════════════════════════════════════');
-  lines.push(`NET WORTH: ${fmt(d.netWorth)}`);
+  lines.push(`NET WORTH (equity-adjusted): ${fmt(d.netWorth)}`);
+  lines.push(`GROSS ASSET VALUE (before debt): ${fmt(d.grossAssetValue)}`);
   lines.push('═══════════════════════════════════════');
+  lines.push('  NET WORTH is cash + investments + property EQUITY, minus credit');
+  lines.push('  card and loan balances. This is the real figure — use it by');
+  lines.push('  default when the user asks what they are worth.');
+  lines.push('  GROSS ASSET VALUE ignores all debt. Only use it when the user');
+  lines.push('  explicitly asks about total/gross asset value or portfolio size.');
+  if (d.totalDebt > 0) {
+    lines.push(`  TOTAL DEBT: ${fmt(d.totalDebt)} (${fmt(d.mortgageDebt)} mortgages, ${fmt(d.accountDebt)} cards & loans)`);
+  }
+  if (d.propsMissingEquity > 0) {
+    lines.push(`  CAVEAT: ${d.propsMissingEquity} propert${d.propsMissingEquity === 1 ? 'y is' : 'ies are'} counted at full value`);
+    lines.push('  because mortgage details are missing, so NET WORTH is overstated.');
+  }
   lines.push('');
 
-  lines.push('BANKING ACCOUNTS:');
-  if (!d.banking.length) {
+  lines.push('BANKING ACCOUNTS (cash — credit cards and loans listed separately below):');
+  const debtIds  = new Set((d.debtAccounts || []).map(a => a.accountId));
+  const cashOnly = d.banking.filter(a => !debtIds.has(a.accountId));
+  if (!cashOnly.length) {
     lines.push('  No banking accounts data available.');
   } else {
-    for (const acct of d.banking) {
+    for (const acct of cashOnly) {
       lines.push(`  • ${acct.name} (${acct.institution})`);
       lines.push(`    Type: ${acct.subtype || acct.type}`);
       lines.push(`    Current balance: ${fmt(acct.balance)}`);
       if (acct.available != null && acct.available !== acct.balance) lines.push(`    Available: ${fmt(acct.available)}`);
-      if (acct.limit != null) {
-        lines.push(`    Credit limit: ${fmt(acct.limit)}`);
-        lines.push(`    Credit used: ${fmt(acct.balance)} / ${fmt(acct.limit)} (${((acct.balance / acct.limit) * 100).toFixed(0)}%)`);
-      }
       const s = d.accountSummaries?.find(x => x.accountName === acct.name);
       if (s) lines.push(`    Last 30 days: ${fmt(s.income)} income, ${fmt(s.expenses)} expenses (${s.txCount} transactions)`);
     }
   }
-  lines.push(`  TOTAL BANKING: ${fmt(d.totalBanking)}`);
+  lines.push(`  TOTAL CASH: ${fmt(d.totalBanking)}`);
   lines.push('');
+
+  // Debt accounts get their own section so the balances are never mistaken for
+  // assets. Plaid reports these as positive amounts owed.
+  if (d.debtAccounts?.length) {
+    lines.push('DEBT ACCOUNTS (balances are amounts OWED — these reduce net worth):');
+    for (const acct of d.debtAccounts) {
+      lines.push(`  • ${acct.name} (${acct.institution})`);
+      lines.push(`    Type: ${acct.subtype || acct.type}`);
+      lines.push(`    Balance owed: ${fmt(acct.balance)}`);
+      if (acct.limit != null) {
+        lines.push(`    Credit limit: ${fmt(acct.limit)}`);
+        lines.push(`    Utilization: ${fmt(acct.balance)} / ${fmt(acct.limit)} (${((acct.balance / acct.limit) * 100).toFixed(0)}%)`);
+      }
+      const s = d.accountSummaries?.find(x => x.accountName === acct.name);
+      if (s) lines.push(`    Last 30 days: ${fmt(s.income)} income, ${fmt(s.expenses)} expenses (${s.txCount} transactions)`);
+    }
+    lines.push(`  TOTAL CARD & LOAN DEBT: ${fmt(d.accountDebt)}`);
+    lines.push('');
+  }
 
   if (d.monthlyIncome > 0 || d.monthlyExpenses > 0) {
     lines.push('SPENDING SUMMARY:');

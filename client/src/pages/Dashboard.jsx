@@ -10,6 +10,7 @@ import {
 } from '../services/api.js';
 import PropertyInputModal from '../components/PropertyInputModal.jsx';
 import ErrorBoundary      from '../components/ErrorBoundary.jsx';
+import { summarizeNetWorth } from '../utils/netWorth.js';
 
 // ─── Sub-components ─────────────────────────────────────────────────────────
 function SectionHeader({ title, action }) {
@@ -21,11 +22,53 @@ function SectionHeader({ title, action }) {
   );
 }
 
-function StatCard({ label, value, sub, color = 'text-gray-900' }) {
+/**
+ * Hover/focus tooltip. A real button rather than a bare `title` attribute so it
+ * is keyboard reachable and readable on touch devices, where hover never fires.
+ */
+function InfoTip({ text, align = 'center' }) {
+  const position = align === 'left'
+    ? 'left-0'
+    : align === 'right'
+      ? 'right-0'
+      : 'left-1/2 -translate-x-1/2';
+
+  return (
+    <span className="relative inline-flex group align-middle ml-1.5">
+      <button
+        type="button"
+        aria-label={text}
+        onClick={e => e.preventDefault()}
+        className="w-4 h-4 rounded-full border border-gray-300 text-gray-400 text-[10px] font-semibold leading-none
+                   flex items-center justify-center transition-colors
+                   hover:border-indigo-400 hover:text-indigo-500
+                   focus:outline-none focus:ring-2 focus:ring-indigo-300"
+      >
+        i
+      </button>
+      <span
+        role="tooltip"
+        className={`pointer-events-none absolute ${position} bottom-full mb-2 w-64 z-30
+                    rounded-lg bg-gray-900 text-white text-xs font-normal leading-relaxed
+                    px-3 py-2 shadow-lg normal-case tracking-normal text-left
+                    opacity-0 invisible transition-opacity duration-150
+                    group-hover:opacity-100 group-hover:visible
+                    group-focus-within:opacity-100 group-focus-within:visible`}
+      >
+        {text}
+      </span>
+    </span>
+  );
+}
+
+function StatCard({ label, value, sub, color = 'text-gray-900', tooltip, tooltipAlign, size = 'md' }) {
   return (
     <div className="card">
-      <p className="stat-label">{label}</p>
-      <p className={`stat-value ${color}`}>{value}</p>
+      <p className="stat-label flex items-center">
+        <span>{label}</span>
+        {tooltip && <InfoTip text={tooltip} align={tooltipAlign} />}
+      </p>
+      <p className={`font-bold ${size === 'lg' ? 'text-3xl md:text-4xl' : 'text-2xl'} ${color}`}>{value}</p>
       {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
     </div>
   );
@@ -116,8 +159,14 @@ function BankAccountCard({ account, onDisconnect, navigate }) {
         </span>
       </div>
 
-      <p className="text-2xl font-bold text-gray-900">{formatCurrency(balance)}</p>
-      {available !== null && available !== undefined && !isCredit && (
+      {/* Credit balances are money owed, so they read as negative here to match
+          how they are treated in the net worth totals above. */}
+      <p className={`text-2xl font-bold ${isCredit ? 'text-red-500' : 'text-gray-900'}`}>
+        {isCredit && balance > 0 ? `−${formatCurrency(balance)}` : formatCurrency(balance)}
+      </p>
+      {isCredit ? (
+        <p className="text-xs text-gray-400 mt-1">Owed — subtracted from net worth</p>
+      ) : available !== null && available !== undefined && (
         <p className="text-xs text-gray-400 mt-1">Available: {formatCurrency(available)}</p>
       )}
 
@@ -497,10 +546,8 @@ export default function Dashboard() {
   const { connect, loading: connecting } = useConnectAccount(loadAll);
 
   // ── Net worth ──
-  const bankTotal   = bankAccounts.reduce((s, a) => s + (a.balances?.current || 0), 0);
-  const investTotal = investAccounts.reduce((s, a) => s + (a.balances?.current || 0), 0);
-  const propTotal   = properties.reduce((s, p) => s + (p.estimatedValue || 0), 0);
-  const netWorth    = bankTotal + investTotal + propTotal;
+  // Two figures: equity-adjusted (what you actually own) and gross (face value).
+  const nw = summarizeNetWorth({ bankAccounts, investAccounts, properties });
 
   const totalCashFlow = properties.reduce((s, p) => s + (p.effective?.monthlyCashFlow ?? p.cashFlow?.monthly ?? 0), 0);
 
@@ -573,12 +620,75 @@ export default function Dashboard() {
       {/* Net Worth Summary */}
       <section>
         <h1 className="text-2xl font-bold text-gray-900 mb-4">Overview</h1>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard label="Net Worth"         value={formatCurrency(netWorth)}    color="text-indigo-600" />
-          <StatCard label="Banking"           value={formatCurrency(bankTotal)}   />
-          <StatCard label="Investments"       value={formatCurrency(investTotal)} />
-          <StatCard label="Real Estate"       value={formatCurrency(propTotal)}
-            sub={totalCashFlow !== 0 ? `${totalCashFlow >= 0 ? '+' : ''}${formatCurrency(totalCashFlow)}/mo cash flow` : undefined} />
+
+        {/* Headline — the two ways to read the same portfolio */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <StatCard
+            size="lg"
+            label="True Net Worth"
+            color="text-indigo-600"
+            value={formatCurrency(nw.trueNetWorth)}
+            tooltipAlign="left"
+            tooltip="What you actually own after debt. Cash and investments, plus your equity in each property (estimated value minus the remaining mortgage), minus credit card and loan balances."
+            sub={nw.totalDebt > 0
+              ? `After ${formatCurrency(nw.totalDebt)} of debt`
+              : 'No debt recorded'}
+          />
+          <StatCard
+            size="lg"
+            label="Gross Asset Value"
+            color="text-gray-900"
+            value={formatCurrency(nw.grossAssetValue)}
+            tooltip="Everything you own at face value — cash, investments, and the full estimated market value of every property, before subtracting any debt. Useful for sizing the portfolio, not for knowing what you'd keep."
+            sub={nw.totalDebt > 0
+              ? `${formatCurrency(nw.totalDebt)} higher — debt not subtracted`
+              : 'Same as net worth — no debt recorded'}
+          />
+        </div>
+
+        {/* Warn when the headline is overstated by missing mortgage data */}
+        {nw.propsMissingEquity > 0 && (
+          <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3">
+            ⚠ {nw.propsMissingEquity} {nw.propsMissingEquity === 1 ? 'property is' : 'properties are'} counted
+            at full value because mortgage details are missing — add purchase price, down payment, rate, and
+            term to get a true equity-adjusted figure.
+          </p>
+        )}
+
+        {/* Breakdown */}
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 mt-4">
+          <StatCard
+            label="Cash &amp; Banking"
+            value={formatCurrency(nw.cashTotal)}
+            tooltipAlign="left"
+            tooltip="Checking and savings balances only. Credit cards and loans are counted under Debts instead, since they are money you owe rather than money you have."
+          />
+          <StatCard label="Investments" value={formatCurrency(nw.investTotal)} />
+          <StatCard
+            label="Real Estate (Equity)"
+            color="text-indigo-600"
+            value={formatCurrency(nw.propEquityTotal)}
+            tooltip="Your ownership stake across all properties — estimated value minus the remaining mortgage balance on each."
+            sub={totalCashFlow !== 0
+              ? `${totalCashFlow >= 0 ? '+' : ''}${formatCurrency(totalCashFlow)}/mo cash flow`
+              : undefined}
+          />
+          <StatCard
+            label="Real Estate (Gross)"
+            value={formatCurrency(nw.propGrossTotal)}
+            tooltip="Total estimated market value of your properties before subtracting mortgage debt."
+            sub={nw.mortgageDebt > 0 ? `${formatCurrency(nw.mortgageDebt)} still owed` : undefined}
+          />
+          <StatCard
+            label="Debts"
+            color={nw.totalDebt > 0 ? 'text-red-500' : 'text-gray-900'}
+            value={nw.totalDebt > 0 ? `−${formatCurrency(nw.totalDebt)}` : formatCurrency(0)}
+            tooltipAlign="right"
+            tooltip="Everything you owe: remaining mortgage balances on your properties, plus credit card and loan balances from connected accounts."
+            sub={nw.accountDebt > 0 && nw.mortgageDebt > 0
+              ? `${formatCurrency(nw.mortgageDebt)} mortgages · ${formatCurrency(nw.accountDebt)} cards & loans`
+              : undefined}
+          />
         </div>
       </section>
 
