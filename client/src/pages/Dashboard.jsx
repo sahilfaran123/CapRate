@@ -46,9 +46,12 @@ function InfoTip({ text, align = 'center' }) {
       >
         i
       </button>
+      {/* Opens downward. Anchoring above (`bottom-full`) pushed the tooltip off
+          the top of the page for the overview cards, which sit directly under
+          the navbar — there is always room below. */}
       <span
         role="tooltip"
-        className={`pointer-events-none absolute ${position} bottom-full mb-2 w-64 z-30
+        className={`pointer-events-none absolute ${position} top-full mt-2 w-64 z-50
                     rounded-lg bg-gray-900 text-white text-xs font-normal leading-relaxed
                     px-3 py-2 shadow-lg normal-case tracking-normal text-left
                     opacity-0 invisible transition-opacity duration-150
@@ -676,6 +679,7 @@ export default function Dashboard() {
           <StatCard
             label="Real Estate (Gross)"
             value={formatCurrency(nw.propGrossTotal)}
+            tooltipAlign="right"
             tooltip="Total estimated market value of your properties before subtracting mortgage debt."
             sub={nw.mortgageDebt > 0 ? `${formatCurrency(nw.mortgageDebt)} still owed` : undefined}
           />
