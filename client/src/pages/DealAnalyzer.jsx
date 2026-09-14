@@ -101,16 +101,29 @@ export default function DealAnalyzer() {
         const interest = balance * mr;
         balance -= (pi - interest);
       }
+      const equity = value - Math.max(0, balance);
+
+      // Cumulative return if the investor sold at the END of this year:
+      // the equity they'd have beyond the cash they put in, plus every dollar
+      // of cash flow collected up to that point. Reported per year because a
+      // 3-year hold is just as valid a plan as a 5-year one.
+      const equityGain         = equity - down;
+      const cumulativeCashFlow = annualCashFlow * year;
+      const totalReturn        = equityGain + cumulativeCashFlow;
+
       projection.push({
         year,
-        value:    Math.round(value),
-        equity:   Math.round(value - Math.max(0, balance)),
-        cashFlow: Math.round(annualCashFlow),
+        value:              Math.round(value),
+        equity:             Math.round(equity),
+        cashFlow:           Math.round(annualCashFlow),
+        equityGain:         Math.round(equityGain),
+        cumulativeCashFlow: Math.round(cumulativeCashFlow),
+        totalReturn:        Math.round(totalReturn),
+        // Return on the cash actually invested (the down payment)
+        roi:                down > 0 ? (totalReturn / down) * 100 : null,
       });
     }
-    const totalReturn = Math.round(
-      (projection[4].equity - down) + annualCashFlow * 5
-    );
+    const totalReturn = projection[4].totalReturn;
 
     return {
       loanAmount, pi: Math.round(pi), vacancyLoss: Math.round(vacancyLoss),
@@ -292,22 +305,38 @@ export default function DealAnalyzer() {
                       <th className="pb-2 font-medium text-right">Property Value</th>
                       <th className="pb-2 font-medium text-right">Equity</th>
                       <th className="pb-2 font-medium text-right">Annual Cash Flow</th>
-                      <th className="pb-2 font-medium text-right">Total Return</th>
+                      <th className="pb-2 font-medium text-right">
+                        Total Return <span className="normal-case tracking-normal text-gray-300">if sold</span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {r.projection.map((row, i) => (
+                    {r.projection.map((row) => (
                       <tr key={row.year}>
                         <td className="py-2 font-medium">{row.year}</td>
                         <td className="py-2 text-right">{formatCurrency(row.value)}</td>
                         <td className="py-2 text-right text-indigo-600 font-medium">{formatCurrency(row.equity)}</td>
                         <td className={`py-2 text-right ${cfColor}`}>{row.cashFlow >= 0 ? '+' : ''}{formatCurrency(row.cashFlow)}</td>
-                        <td className="py-2 text-right font-semibold">{i === 4 ? formatCurrency(r.totalReturn) : '—'}</td>
+                        <td className="py-2 text-right">
+                          <span className={`font-semibold ${row.totalReturn >= 0 ? 'text-gray-900' : 'text-red-500'}`}>
+                            {row.totalReturn >= 0 ? '+' : ''}{formatCurrency(row.totalReturn)}
+                          </span>
+                          {row.roi != null && (
+                            <span className="block text-[11px] text-gray-400">
+                              {row.roi >= 0 ? '+' : ''}{row.roi.toFixed(0)}% on cash
+                            </span>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
                 </div>
+                <p className="text-xs text-gray-400 mt-3 leading-relaxed">
+                  <span className="font-medium text-gray-500">Total Return</span> is what you'd clear if you sold at the
+                  end of that year — equity above your {formatCurrency(Math.round(num(form.downPayment)))} down payment,
+                  plus all cash flow collected so far. Selling costs (agent fees, closing) and taxes are not deducted.
+                </p>
               </div>
 
               {/* Add to portfolio */}
