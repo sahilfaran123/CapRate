@@ -193,6 +193,47 @@ export const getMe = async (req, res, next) => {
   }
 };
 
+// ── Update Onboarding ─────────────────────────────────────────────────────────
+/**
+ * Patches onboarding state. Deliberately accepts only the fields a user can
+ * actually choose — step completion (has a property, has a bank) is derived from
+ * account state in toSafeObject and can never be set by the client.
+ */
+export const updateOnboarding = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const { investorType, exploredDealAnalyzer, dismissed } = req.body;
+
+    if (!user.onboarding) user.onboarding = {};
+
+    if (investorType !== undefined) {
+      if (!['owner', 'shopper', null].includes(investorType)) {
+        return res.status(400).json({ error: 'investorType must be "owner", "shopper", or null' });
+      }
+      user.onboarding.investorType = investorType;
+    }
+    if (exploredDealAnalyzer !== undefined) {
+      user.onboarding.exploredDealAnalyzer = !!exploredDealAnalyzer;
+    }
+    if (dismissed !== undefined) {
+      user.onboarding.dismissed = !!dismissed;
+      // Stamped once, for activation metrics later
+      if (dismissed && !user.onboarding.completedAt) {
+        user.onboarding.completedAt = new Date();
+      }
+    }
+
+    user.updatedAt = new Date();
+    await user.save();
+
+    res.json({ success: true, onboarding: user.toSafeObject().onboarding });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // ── Delete Account ────────────────────────────────────────────────────────────
 export const deleteAccount = async (req, res, next) => {
   try {

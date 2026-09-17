@@ -57,7 +57,7 @@ export default function Login() {
         return;
       }
       // Store email for display purposes only — auth is via HTTP-only cookie
-      login(data.user.email);
+      await login(data.user.email);
     } catch (_) {
       setError('Unable to connect to server. Make sure it is running.');
     } finally {
@@ -104,7 +104,7 @@ export default function Login() {
         setError(data.error || 'Registration failed');
         return;
       }
-      login(data.user.email);
+      await login(data.user.email);
     } catch (_) {
       setError('Unable to connect to server. Make sure it is running.');
     } finally {

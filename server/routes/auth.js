@@ -2,7 +2,7 @@ import express from 'express';
 import {
   register, login, refresh, logout,
   requestPasswordReset, resetPassword,
-  getMe, deleteAccount,
+  getMe, deleteAccount, updateOnboarding,
 } from '../controllers/authController.js';
 import { authenticate, authRateLimit, registrationRateLimit } from '../middleware/security.js';
 import { body } from 'express-validator';
@@ -40,6 +40,14 @@ router.post('/reset-password', [
 ], resetPassword);
 
 router.get('/me',      authenticate, getMe);
+
+router.patch('/onboarding', [
+  authenticate,
+  body('investorType').optional({ nullable: true }).isIn(['owner', 'shopper']),
+  body('exploredDealAnalyzer').optional().isBoolean(),
+  body('dismissed').optional().isBoolean(),
+  handleValidationErrors,
+], updateOnboarding);
 
 // Delete account — requires password confirmation for safety
 router.delete('/account', authenticate, deleteAccount);

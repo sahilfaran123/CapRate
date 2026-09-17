@@ -11,6 +11,7 @@ import {
 import PropertyInputModal from '../components/PropertyInputModal.jsx';
 import ErrorBoundary      from '../components/ErrorBoundary.jsx';
 import { summarizeNetWorth } from '../utils/netWorth.js';
+import OnboardingChecklist from '../components/OnboardingChecklist.jsx';
 
 // ─── Sub-components ─────────────────────────────────────────────────────────
 function SectionHeader({ title, action }) {
@@ -585,6 +586,14 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-10">
+      {/* First-run checklist — hides itself once dismissed or not applicable */}
+      <OnboardingChecklist
+        properties={properties}
+        bankAccounts={bankAccounts}
+        onAddProperty={() => setShowAddProperty(true)}
+        onConnectBank={connect}
+      />
+
       {/* Expired token warning */}
       {expiredConnections.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">

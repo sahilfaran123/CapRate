@@ -82,6 +82,20 @@ const passwordResetSchema = new mongoose.Schema({
   used:       { type: Boolean, default: false },
 }, { _id: false });
 
+// ── Onboarding sub-schema ───────────────────────────────────────────────────
+// Stores ONLY what cannot be derived from account state. Whether the user has
+// added a property or connected a bank is read from realEstateProperties and
+// plaidItems at response time — duplicating it here would drift the moment
+// someone removes their last property.
+const onboardingSchema = new mongoose.Schema({
+  // 'owner'   — already owns rental property
+  // 'shopper' — evaluating their first purchase
+  investorType:         { type: String,  enum: ['owner', 'shopper', null], default: null },
+  exploredDealAnalyzer: { type: Boolean, default: false },
+  dismissed:            { type: Boolean, default: false },
+  completedAt:          { type: Date,    default: null },
+}, { _id: false });
+
 // ── Main User schema ─────────────────────────────────────────────────────────
 const userSchema = new mongoose.Schema({
   email: {
@@ -126,6 +140,9 @@ const userSchema = new mongoose.Schema({
 
   // Real estate portfolio
   realEstateProperties:   { type: [realEstatePropertySchema], default: [] },
+
+  // Onboarding — see onboardingSchema above
+  onboarding:             { type: onboardingSchema, default: () => ({}) },
 
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
@@ -210,12 +227,22 @@ userSchema.methods.verifyAndConsumeResetToken = async function (raw) {
 
 // Safe object for API responses — strips all sensitive fields
 userSchema.methods.toSafeObject = function () {
+  const onboarding = this.onboarding || {};
   return {
     id:          this._id,
     email:       this.email,
     name:        this.name,
     lastLoginAt: this.lastLoginAt,
     createdAt:   this.createdAt,
+    onboarding: {
+      investorType:         onboarding.investorType         ?? null,
+      exploredDealAnalyzer: onboarding.exploredDealAnalyzer ?? false,
+      dismissed:            onboarding.dismissed            ?? false,
+      completedAt:          onboarding.completedAt          ?? null,
+      // Derived, never stored — always reflects current account state
+      hasProperty:       (this.realEstateProperties || []).length > 0,
+      hasBankConnection: (this.plaidItems || []).length > 0,
+    },
   };
 };
 
