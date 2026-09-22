@@ -153,7 +153,18 @@ function calcCapRate(inputs = {}, data = {}, currentValue = null) {
   return null;
 }
 
-function buildPropertyResponse(property) {
+/**
+ * @param {object} property
+ * @param {Array}  siblings — the user's other properties, used to detect when a
+ *   bank account is claimed by more than one of them. Nothing prevents that
+ *   (an investor may genuinely run several properties out of one checking
+ *   account), but each property's financials are computed from the FULL
+ *   transaction set of its linked account — so a shared account makes every
+ *   property claiming it report the same rent and mortgage, and portfolio
+ *   totals then sum those duplicates. Surfacing it lets the UI warn until
+ *   transaction-level assignment lands.
+ */
+function buildPropertyResponse(property, siblings = []) {
   const data         = property.data || {};
   const inputs       = property.userInputs || {};
   const cashFlow     = calcCashFlow(inputs);
@@ -209,6 +220,13 @@ function buildPropertyResponse(property) {
     linkedAccountId:   property.linkedAccountId   || null,
     linkedItemId:      property.linkedItemId      || null,
     linkedAccountName: property.linkedAccountName || null,
+    // Addresses of other properties linked to the SAME account (empty when not shared)
+    linkedAccountSharedWith: property.linkedAccountId
+      ? siblings
+          .filter(p => p.linkedAccountId === property.linkedAccountId &&
+                       String(p._id) !== String(property._id))
+          .map(p => p.address)
+      : [],
     // Actuals + effective figures
     actuals: actuals ? {
       monthlyCashFlow: actuals.monthlyCashFlow,
@@ -340,7 +358,10 @@ export const getProperties = async (req, res, next) => {
     }
     if (actualsRefreshed > 0) await user.save();
 
-    const properties = user.realEstateProperties.map(buildPropertyResponse);
+    // NOTE: not `.map(buildPropertyResponse)` — Array.map passes the index as the
+    // second argument, which would arrive as `siblings`.
+    const all = user.realEstateProperties;
+    const properties = all.map(p => buildPropertyResponse(p, all));
     res.json({ properties, meta: { total: properties.length, apiCalls, cacheHits, actualsRefreshed } });
   } catch (err) {
     next(err);
@@ -377,7 +398,10 @@ export const addProperty = async (req, res, next) => {
       p.address.toLowerCase().includes(address.toLowerCase())
     );
     if (duplicate) {
-      return res.status(409).json({ error: 'Property already added', property: buildPropertyResponse(duplicate) });
+      return res.status(409).json({
+        error:    'Property already added',
+        property: buildPropertyResponse(duplicate, user.realEstateProperties),
+      });
     }
 
     user.realEstateProperties.push({
@@ -394,7 +418,10 @@ export const addProperty = async (req, res, next) => {
 
     await user.save();
     const added = user.realEstateProperties[user.realEstateProperties.length - 1];
-    res.status(201).json({ success: true, property: buildPropertyResponse(added) });
+    res.status(201).json({
+      success:  true,
+      property: buildPropertyResponse(added, user.realEstateProperties),
+    });
   } catch (err) {
     next(err);
   }
@@ -462,7 +489,7 @@ export const refreshProperty = async (req, res, next) => {
     property.lastRentRefreshed    = new Date();
     await user.save();
 
-    res.json({ success: true, property: buildPropertyResponse(property) });
+    res.json({ success: true, property: buildPropertyResponse(property, user.realEstateProperties) });
   } catch (err) {
     next(err);
   }
@@ -755,7 +782,20 @@ export const linkPropertyAccount = async (req, res, next) => {
     property.linkedAccountName = (accountName || '').slice(0, 100) || null;
     await user.save();
 
-    res.json({ success: true, linkedAccountId: accountId, linkedAccountName: property.linkedAccountName });
+    // Sharing one account across properties is allowed — plenty of investors run
+    // everything out of a single checking account — but until transactions can be
+    // assigned per property, each one counts the FULL account, so portfolio totals
+    // double up. Report it so the client can warn rather than failing silently.
+    const sharedWith = user.realEstateProperties
+      .filter(p => p.linkedAccountId === accountId && String(p._id) !== String(property._id))
+      .map(p => p.address);
+
+    res.json({
+      success: true,
+      linkedAccountId:   accountId,
+      linkedAccountName: property.linkedAccountName,
+      sharedWith,
+    });
   } catch (err) {
     next(err);
   }

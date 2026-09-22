@@ -73,7 +73,22 @@ function SummaryBar({ properties }) {
     { label: 'Properties',        value: properties.length,            color: 'text-gray-900' },
   ];
 
+  // Properties sharing one bank account each count that account in full, so the
+  // cash flow total below double-counts them. Warn rather than silently misreport.
+  const sharedCount = properties.filter(p => (p.linkedAccountSharedWith || []).length > 0).length;
+
   return (
+    <>
+    {sharedCount > 0 && (
+      <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4">
+        <p className="text-sm font-medium text-amber-800">⚠ Cash flow is overstated</p>
+        <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+          {sharedCount} properties share a bank account with another property. Each one counts every transaction
+          on that account, so the same rent and mortgage are counted more than once. Unlink all but one of them
+          for an accurate total until per-property transaction assignment is available.
+        </p>
+      </div>
+    )}
     <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
       {metrics.map(m => (
         <div key={m.label} className="card">
@@ -83,6 +98,7 @@ function SummaryBar({ properties }) {
         </div>
       ))}
     </div>
+    </>
   );
 }
 
@@ -534,9 +550,11 @@ export function prewarmFinancials(propId) {
 }
 
 // ─── Banking Tab — linked account & actual vs estimated ──────────────────────
-function BankingTab({ property, onChanged }) {
+function BankingTab({ property, onChanged, allProperties = [] }) {
   const propId = property.propertyId || property._id;
   const linked = !!property.linkedAccountId;
+  // Other properties already pointing at this same account
+  const sharedWith = property.linkedAccountSharedWith || [];
 
   const [accounts,   setAccounts]   = useState(null);   // available accounts for picker
   const [showPicker, setShowPicker] = useState(false);
@@ -579,7 +597,26 @@ function BankingTab({ property, onChanged }) {
     }
   };
 
+  /** Other properties already linked to a given account id. */
+  const claimedBy = (accountId) => allProperties
+    .filter(p => p.linkedAccountId === accountId && (p.propertyId || p._id) !== propId)
+    .map(p => p.address);
+
   const handleLink = async (account) => {
+    // Until transactions can be assigned per property, a shared account is
+    // counted in full by every property linked to it — which silently doubles
+    // portfolio cash flow. Make the user opt into that knowingly.
+    const claims = claimedBy(account.account_id);
+    if (claims.length) {
+      const list = claims.map(a => `• ${a}`).join('\n');
+      const ok = window.confirm(
+        `This account is already linked to:\n\n${list}\n\n` +
+        `Each property counts ALL transactions on the account, so rent and ` +
+        `mortgage will be counted once per property and your portfolio cash ` +
+        `flow will be overstated.\n\nLink anyway?`
+      );
+      if (!ok) return;
+    }
     try {
       await linkPropertyAccount(propId, {
         accountId:   account.account_id,
@@ -669,20 +706,32 @@ function BankingTab({ property, onChanged }) {
               </p>
             ) : (
               <div className="space-y-2">
-                {accounts.map(a => (
-                  <button
-                    key={a.account_id}
-                    onClick={() => handleLink(a)}
-                    className="w-full text-left bg-white border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/40 rounded-lg px-4 py-3 transition-colors"
-                  >
-                    <p className="text-sm font-medium text-gray-900">
-                      {a.name} {a.mask && <span className="text-gray-400">••{a.mask}</span>}
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      {a.institutionName} · {a.subtype} · {formatCurrency(a.balances?.current)}
-                    </p>
-                  </button>
-                ))}
+                {accounts.map(a => {
+                  const claims = claimedBy(a.account_id);
+                  return (
+                    <button
+                      key={a.account_id}
+                      onClick={() => handleLink(a)}
+                      className={`w-full text-left rounded-lg px-4 py-3 border transition-colors ${
+                        claims.length
+                          ? 'bg-amber-50/60 border-amber-200 hover:border-amber-300'
+                          : 'bg-white border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/40'
+                      }`}
+                    >
+                      <p className="text-sm font-medium text-gray-900">
+                        {a.name} {a.mask && <span className="text-gray-400">••{a.mask}</span>}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {a.institutionName} · {a.subtype} · {formatCurrency(a.balances?.current)}
+                      </p>
+                      {claims.length > 0 && (
+                        <p className="text-xs text-amber-700 mt-1">
+                          ⚠ Already used by {claims.length === 1 ? shortAddress(claims[0]) : `${claims.length} other properties`}
+                        </p>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -698,6 +747,21 @@ function BankingTab({ property, onChanged }) {
       {justLinked && (
         <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-800">
           ✓ Bank account linked successfully. Analyzing your transactions…
+        </div>
+      )}
+
+      {/* Shared-account warning — figures below count the WHOLE account */}
+      {sharedWith.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+          <p className="text-sm font-medium text-amber-800">
+            ⚠ This account is shared with {sharedWith.length === 1 ? 'another property' : `${sharedWith.length} other properties`}
+          </p>
+          <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+            Every figure below is calculated from <strong>all</strong> transactions on this account, so income and
+            expenses for {sharedWith.map(shortAddress).join(', ')} are included here too — and counted again on
+            {sharedWith.length === 1 ? ' that property' : ' those properties'}. Portfolio cash flow is overstated
+            until transactions can be assigned per property.
+          </p>
         </div>
       )}
 
@@ -971,7 +1035,7 @@ function BankingTab({ property, onChanged }) {
 }
 
 // ─── Property Detail Card ────────────────────────────────────────────────────
-function PropertyDetailCard({ property, onEdit, onRefinance, onChanged, expanded, setExpanded, tab, setTab }) {
+function PropertyDetailCard({ property, onEdit, onRefinance, onChanged, expanded, setExpanded, tab, setTab, allProperties = [] }) {
 
   const inputs = property.userInputs || {};
   const cf     = property.cashFlow;
@@ -1139,7 +1203,7 @@ function PropertyDetailCard({ property, onEdit, onRefinance, onChanged, expanded
 
           {tab === 'events' && <EventsTab property={property} onChanged={onChanged} />}
 
-          {tab === 'banking' && <BankingTab property={property} onChanged={onChanged} />}
+          {tab === 'banking' && <BankingTab property={property} onChanged={onChanged} allProperties={allProperties} />}
         </div>
       )}
     </div>
@@ -1417,6 +1481,7 @@ export default function RealEstate() {
               <PropertyDetailCard
                 key={pid}
                 property={p}
+                allProperties={properties}
                 onEdit={(prop) => setPropertyModal({ open: true, property: prop })}
                 onRefinance={(prop) => setRefiModal(prop)}
                 onChanged={load}
