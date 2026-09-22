@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import {
   BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Legend,
@@ -73,19 +73,23 @@ function SummaryBar({ properties }) {
     { label: 'Properties',        value: properties.length,            color: 'text-gray-900' },
   ];
 
-  // Properties sharing one bank account each count that account in full, so the
-  // cash flow total below double-counts them. Warn rather than silently misreport.
+  // Properties sharing a bank account only count the transactions assigned to
+  // them; anything still unassigned counts for nobody, so the total below
+  // UNDERSTATES until those are reviewed. That is the deliberate trade — a low
+  // number flagged for review beats a plausible-looking inflated one.
   const sharedCount = properties.filter(p => (p.linkedAccountSharedWith || []).length > 0).length;
 
   return (
     <>
     {sharedCount > 0 && (
       <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4">
-        <p className="text-sm font-medium text-amber-800">⚠ Cash flow is overstated</p>
+        <p className="text-sm font-medium text-amber-800">⚠ Some transactions are unassigned</p>
         <p className="text-xs text-amber-700 mt-1 leading-relaxed">
-          {sharedCount} properties share a bank account with another property. Each one counts every transaction
-          on that account, so the same rent and mortgage are counted more than once. Unlink all but one of them
-          for an accurate total until per-property transaction assignment is available.
+          {sharedCount} properties share a bank account. Transactions we cannot confidently attribute
+          count toward no property, so the cash flow below is understated until they are reviewed.{' '}
+          <Link to="/transactions" className="underline underline-offset-2 font-medium hover:text-amber-900">
+            Assign transactions
+          </Link>
         </p>
       </div>
     )}
@@ -603,17 +607,18 @@ function BankingTab({ property, onChanged, allProperties = [] }) {
     .map(p => p.address);
 
   const handleLink = async (account) => {
-    // Until transactions can be assigned per property, a shared account is
-    // counted in full by every property linked to it — which silently doubles
-    // portfolio cash flow. Make the user opt into that knowingly.
+    // Sharing an account is supported, but it stops being automatic: once two
+    // properties claim one account we can no longer tell whose rent is whose, so
+    // transactions have to be assigned before they count anywhere. Say so up
+    // front rather than letting the numbers quietly drop.
     const claims = claimedBy(account.account_id);
     if (claims.length) {
       const list = claims.map(a => `• ${a}`).join('\n');
       const ok = window.confirm(
         `This account is already linked to:\n\n${list}\n\n` +
-        `Each property counts ALL transactions on the account, so rent and ` +
-        `mortgage will be counted once per property and your portfolio cash ` +
-        `flow will be overstated.\n\nLink anyway?`
+        `Sharing an account is fine, but transactions will no longer be ` +
+        `attributed automatically — you will need to assign them on the ` +
+        `Transactions page before they count toward either property.\n\nLink anyway?`
       );
       if (!ok) return;
     }
@@ -750,17 +755,39 @@ function BankingTab({ property, onChanged, allProperties = [] }) {
         </div>
       )}
 
-      {/* Shared-account warning — figures below count the WHOLE account */}
+      {/* Shared-account notice — figures below cover only THIS property's share */}
       {sharedWith.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-          <p className="text-sm font-medium text-amber-800">
-            ⚠ This account is shared with {sharedWith.length === 1 ? 'another property' : `${sharedWith.length} other properties`}
+        <div className={`border rounded-xl px-4 py-3 ${
+          fin?.attribution?.unassignedCount
+            ? 'bg-amber-50 border-amber-200'
+            : 'bg-gray-50 border-gray-200'
+        }`}>
+          <p className={`text-sm font-medium ${
+            fin?.attribution?.unassignedCount ? 'text-amber-800' : 'text-gray-700'
+          }`}>
+            {fin?.attribution?.unassignedCount
+              ? `⚠ ${fin.attribution.unassignedCount} transaction${fin.attribution.unassignedCount === 1 ? '' : 's'} on this account need review`
+              : `Account shared with ${sharedWith.map(shortAddress).join(', ')}`}
           </p>
-          <p className="text-xs text-amber-700 mt-1 leading-relaxed">
-            Every figure below is calculated from <strong>all</strong> transactions on this account, so income and
-            expenses for {sharedWith.map(shortAddress).join(', ')} are included here too — and counted again on
-            {sharedWith.length === 1 ? ' that property' : ' those properties'}. Portfolio cash flow is overstated
-            until transactions can be assigned per property.
+          <p className={`text-xs mt-1 leading-relaxed ${
+            fin?.attribution?.unassignedCount ? 'text-amber-700' : 'text-gray-500'
+          }`}>
+            {fin?.attribution?.unassignedCount ? (
+              <>
+                The figures below only include transactions assigned to this property. Unassigned ones
+                count toward no property, so these numbers are understated until reviewed.{' '}
+                <Link to="/transactions" className="underline underline-offset-2 font-medium hover:text-amber-900">
+                  Assign transactions
+                </Link>
+              </>
+            ) : (
+              <>
+                Everything below is calculated from the {fin?.attribution?.assignedCount ?? 0} transactions
+                assigned to this property — {sharedWith.length === 1 ? 'the other property' : 'the other properties'}
+                {' '}on this account {sharedWith.length === 1 ? 'has' : 'have'} their own.
+                {' '}The account balance is a shared pool, so the reserve figure is not this property's alone.
+              </>
+            )}
           </p>
         </div>
       )}

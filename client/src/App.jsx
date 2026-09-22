@@ -6,6 +6,7 @@ import Analysis       from './pages/Analysis.jsx';
 import Advisor        from './pages/Advisor.jsx';
 import Settings       from './pages/Settings.jsx';
 import RealEstate     from './pages/RealEstate.jsx';
+import Transactions   from './pages/Transactions.jsx';
 import DealAnalyzer   from './pages/DealAnalyzer.jsx';
 import Login          from './pages/Login.jsx';
 import ResetPassword  from './pages/ResetPassword.jsx';
@@ -58,6 +59,7 @@ function AppRoutes() {
               <Route path="/"              element={<Dashboard />} />
               <Route path="/analysis"      element={<Analysis />} />
               <Route path="/real-estate"   element={<RealEstate />} />
+              <Route path="/transactions"  element={<Transactions />} />
               <Route path="/deal-analyzer" element={<DealAnalyzer />} />
               <Route path="/settings"      element={<Settings />} />
               <Route path="/terms"         element={<TermsOfService />} />

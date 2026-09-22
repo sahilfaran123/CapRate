@@ -20,6 +20,7 @@ import investmentRoutes    from './routes/investments.js';
 import realEstateRoutes    from './routes/realEstate.js';
 import balanceHistoryRoutes from './routes/balanceHistory.js';
 import advisorRoutes       from './routes/advisor.js';
+import transactionRoutes   from './routes/transactions.js';
 
 import logger from './utils/logger.js';
 
@@ -61,6 +62,7 @@ app.use('/api/investments',     investmentRoutes);
 app.use('/api/real-estate',     realEstateRoutes);
 app.use('/api/balance-history', balanceHistoryRoutes);
 app.use('/api/advisor',         advisorRoutes);
+app.use('/api/transactions',    transactionRoutes);
 
 app.get('/api/health', (_, res) => res.json({ status: 'ok' }));
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));

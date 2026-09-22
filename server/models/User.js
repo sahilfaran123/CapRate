@@ -75,6 +75,40 @@ const plaidItemSchema = new mongoose.Schema({
   createdAt:       { type: Date, default: Date.now },
 });
 
+// ── Transaction assignment sub-schemas ──────────────────────────────────────
+// When several properties share one bank account, these record who each
+// transaction belongs to. See services/txnAttribution.js for the resolution
+// chain (override → rule → sole claimant → unassigned).
+
+// A rule covers a whole recurring series — one decision handles every past AND
+// future occurrence, which is what keeps this from becoming per-transaction
+// data entry. `matchKey` comes from matchKeyOf() in the attribution service.
+const transactionRuleSchema = new mongoose.Schema({
+  accountId:  { type: String, required: true },
+  matchKey:   { type: String, required: true },
+  target:     { type: String, enum: ['property', 'personal'], required: true },
+  // Null when target is 'personal' — that money belongs to no property.
+  propertyId: { type: mongoose.Schema.Types.ObjectId, default: null },
+  label:      { type: String, maxlength: 200, default: null },  // for display
+  createdAt:  { type: Date, default: Date.now },
+}, { _id: true });
+
+// An override pins ONE transaction, taking precedence over any rule — e.g. the
+// month a shared handyman invoice happened to be for a different property.
+//
+// Both identities are stored because neither alone is sufficient: Plaid's
+// transaction_id changes when a transaction moves from pending to posted, while
+// the fingerprint (account|date|amount|descriptor) survives that transition but
+// cannot distinguish two genuinely identical charges on the same day.
+const transactionOverrideSchema = new mongoose.Schema({
+  accountId:          { type: String, required: true },
+  plaidTransactionId: { type: String, default: null },
+  fingerprint:        { type: String, required: true },
+  target:             { type: String, enum: ['property', 'personal'], required: true },
+  propertyId:         { type: mongoose.Schema.Types.ObjectId, default: null },
+  createdAt:          { type: Date, default: Date.now },
+}, { _id: true });
+
 // ── Password reset sub-schema ────────────────────────────────────────────────
 const passwordResetSchema = new mongoose.Schema({
   tokenHash:  { type: String, required: true },
@@ -140,6 +174,14 @@ const userSchema = new mongoose.Schema({
 
   // Real estate portfolio
   realEstateProperties:   { type: [realEstatePropertySchema], default: [] },
+
+  // Transaction assignment — only populated when an account serves more than
+  // one property, or when the user explicitly marks something personal. Rules
+  // stay small by design (one per recurring series); overrides grow only with
+  // deliberate user action, so embedding these stays well inside the 16MB
+  // document limit rather than needing their own collection.
+  transactionRules:       { type: [transactionRuleSchema],     default: [] },
+  transactionOverrides:   { type: [transactionOverrideSchema], default: [] },
 
   // Onboarding — see onboardingSchema above
   onboarding:             { type: onboardingSchema, default: () => ({}) },

@@ -135,3 +135,37 @@ export const unlinkPropertyAccount = (propertyId) =>
 
 export const getPropertyFinancials = (propertyId) =>
   api.get(`/real-estate/property/${propertyId}/financials`).then(r => r.data);
+
+// ─── Transaction assignment ─────────────────────────────────────────────────
+// Used when one bank account serves several properties: each transaction has to
+// be attributed to a property (or marked personal) before it counts anywhere.
+export const listTransactions = (params = {}) =>
+  api.get('/transactions', { params }).then(r => r.data);
+
+export const assignTransaction = (payload) =>
+  api.post('/transactions/assign', payload).then(r => r.data);
+
+export const createTransactionRule = (payload) =>
+  api.post('/transactions/rule', payload).then(r => r.data);
+
+export const deleteTransactionRule = (ruleId) =>
+  api.delete(`/transactions/rule/${ruleId}`).then(r => r.data);
+
+export const clearTransactionAssignment = (fingerprint) =>
+  api.delete('/transactions/override', { data: { fingerprint } }).then(r => r.data);
+
+// The server caps a bulk request at 100 fingerprints so the payload stays inside
+// the API's 10kb JSON body limit. Chunk here rather than at every call site, and
+// run sequentially so a partial failure leaves a predictable amount applied.
+const BULK_CHUNK = 100;
+export async function assignTransactionsBulk({ accountId, fingerprints, target, propertyId }) {
+  let assigned = 0;
+  for (let i = 0; i < fingerprints.length; i += BULK_CHUNK) {
+    const chunk = fingerprints.slice(i, i + BULK_CHUNK);
+    const res = await api
+      .post('/transactions/assign-bulk', { accountId, fingerprints: chunk, target, propertyId })
+      .then(r => r.data);
+    assigned += res.assigned || 0;
+  }
+  return { success: true, assigned };
+}

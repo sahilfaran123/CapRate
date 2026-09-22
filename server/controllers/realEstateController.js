@@ -1,6 +1,11 @@
 import User from '../models/User.js';
 import rentcastClient from '../services/rentcastClient.js';
 import { plaidClient } from '../services/plaidClient.js';
+import {
+  cleanLabel, matchKeyOf,
+  resolveAssignments, transactionsForProperty,
+  SOURCE_UNASSIGNED, TARGET_PERSONAL,
+} from '../services/txnAttribution.js';
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -890,6 +895,42 @@ async function computePropertyFinancials(user, property, opts = {}) {
     throw err;
   }
 
+  // ── Partition the account by property ──
+  // Several properties may be linked to this one account. Each property's
+  // figures must come from ITS transactions only — otherwise every claimant
+  // reports the same rent and mortgage, and portfolio totals sum the duplicates.
+  //
+  // For the ordinary single-property account this is very nearly a no-op:
+  // resolveAssignments auto-attributes everything to the sole claimant, so the
+  // only rows removed are ones the user explicitly marked personal.
+  //
+  // Detection below MUST run on the partitioned subset rather than the full
+  // account. Run against everything, property A's mortgage series would be a
+  // candidate for property B's mortgage, and the largest-recurring-series
+  // fallback would confidently pick the wrong one.
+  const claimantIds = user.realEstateProperties
+    .filter(p => p.linkedAccountId === property.linkedAccountId)
+    .map(p => String(p._id));
+  const sharedAccount = claimantIds.length > 1;
+
+  const accountTransactions = transactions;
+  const assignments = resolveAssignments({
+    transactions: accountTransactions,
+    accountId:    property.linkedAccountId,
+    claimantIds,
+    rules:        user.transactionRules     || [],
+    overrides:    user.transactionOverrides || [],
+  });
+
+  const unassignedCount = accountTransactions.filter(
+    tx => assignments.get(tx.transaction_id)?.source === SOURCE_UNASSIGNED
+  ).length;
+  const personalCount = accountTransactions.filter(
+    tx => assignments.get(tx.transaction_id)?.target === TARGET_PERSONAL
+  ).length;
+
+  transactions = transactionsForProperty(accountTransactions, assignments, property._id);
+
   // ── Detection heuristics ──
   // Plaid sign convention: positive amount = money OUT, negative = money IN
   const inputs       = property.userInputs || {};
@@ -905,42 +946,16 @@ async function computePropertyFinancials(user, property, opts = {}) {
    * charging on a monthly cadence. A mortgage is the strongest such pattern, but
    * this also catches insurance, HOA, and property-tax escrow payments so they
    * don't get mistaken for one-time expenses.
+   *
+   * Descriptor normalization, series keys, and the assignment rules all live in
+   * services/txnAttribution.js so that detection here and assignment in the
+   * transactions UI can never disagree about what counts as "the same series".
    */
-  // ── Descriptor normalization ──
-  // Bank descriptors for ACH deposits embed dates and trace IDs, e.g.
-  // "ORIG CO NAME:TCS MGT LLC 3135 ORIG ID:471634599 DESC DATE:260820 CO ENTRY..."
-  // Those make every transaction look unique. Extract the stable payer identity
-  // so repeat payments from the same source group together.
-  const normalizeDescriptor = (tx) => {
-    if (tx.merchant_name) return tx.merchant_name.toLowerCase().trim();
-    let s = (tx.name || '').toUpperCase();
-
-    // Pull the originating company name out of an ACH descriptor when present
-    const origMatch = s.match(/ORIG(?:INATOR)?\s*CO(?:MPANY)?\s*NAME\s*:\s*([A-Z0-9 &.,'-]+?)(?=\s+(?:ORIG|DESC|CO |ID:|ENTRY|SEC:|$))/);
-    if (origMatch) s = origMatch[1];
-
-    return s
-      .replace(/\b(?:ORIG|DESC|CO|ID|DATE|ENTRY|SEC|REF|TRN|PPD|CCD|WEB|ACH|DEPOSIT|PAYMENT)\b[:\s]*/g, ' ')
-      .replace(/\d{4,}/g, ' ')
-      .replace(/[^A-Z& ]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase() || null;
-  };
-
-  // Human-readable version of a descriptor for display in the UI
-  const cleanLabel = (tx) => {
-    if (tx.merchant_name) return tx.merchant_name;
-    const norm = normalizeDescriptor(tx);
-    if (!norm) return null;
-    return norm.replace(/\b\w/g, c => c.toUpperCase());
-  };
-
   const debitTxs = transactions.filter(t => t.amount > 0);
   const seriesMap = new Map();
   for (const tx of debitTxs) {
     // Group by merchant when available, else by rounded amount bucket (nearest $5)
-    const key = normalizeDescriptor(tx) || `amt_${Math.round(tx.amount / 5) * 5}`;
+    const key = matchKeyOf(tx);
     if (!seriesMap.has(key)) seriesMap.set(key, []);
     seriesMap.get(key).push(tx);
   }
@@ -966,8 +981,7 @@ async function computePropertyFinancials(user, property, opts = {}) {
       count:  txs.length,
     });
   }
-  const seriesKeyOf = (tx) =>
-    normalizeDescriptor(tx) || `amt_${Math.round(tx.amount / 5) * 5}`;
+  const seriesKeyOf = matchKeyOf;
   const isRecurringDebit = (tx) => tx.amount > 0 && recurringKeys.has(seriesKeyOf(tx));
 
   // The mortgage is the recurring series closest to the expected payment.
@@ -995,10 +1009,9 @@ async function computePropertyFinancials(user, property, opts = {}) {
   const creditTxs = transactions.filter(t => t.amount < 0);
   const creditSeriesMap = new Map();
   for (const tx of creditTxs) {
-    const inflow = Math.abs(tx.amount);
     // Group by normalized payer identity; only fall back to amount buckets when
     // there is no usable descriptor at all.
-    const key = normalizeDescriptor(tx) || `amt_${Math.round(inflow / 25) * 25}`;
+    const key = matchKeyOf(tx);
     if (!creditSeriesMap.has(key)) creditSeriesMap.set(key, []);
     creditSeriesMap.get(key).push(tx);
   }
@@ -1027,8 +1040,7 @@ async function computePropertyFinancials(user, property, opts = {}) {
       monthsPaid: [...monthsSeen].sort(),
     });
   }
-  const creditKeyOf = (tx) =>
-    normalizeDescriptor(tx) || `amt_${Math.round(Math.abs(tx.amount) / 25) * 25}`;
+  const creditKeyOf = matchKeyOf;
 
   const isRent = (tx) => {
     if (tx.amount >= 0) return false;
@@ -1178,6 +1190,21 @@ async function computePropertyFinancials(user, property, opts = {}) {
   return {
     linkedAccountName: property.linkedAccountName,
     currentBalance,
+    // Assignment state for this account. `unassignedCount` is non-zero only on a
+    // shared account: those transactions count toward NOBODY until the user
+    // assigns them, so the figures below understate rather than double-count.
+    attribution: {
+      sharedAccount,
+      claimantCount:   claimantIds.length,
+      // Transactions on the account that belong to this property
+      assignedCount:   transactions.length,
+      accountTxCount:  accountTransactions.length,
+      unassignedCount,
+      personalCount,
+      // The balance is a single shared pool, not this property's alone, so the
+      // reserve figure below is not exclusively available to this property.
+      balanceIsShared: sharedAccount,
+    },
     actual: {
       monthlyCashFlow: actualMonthlyCashFlow,
       monthlyRent:     actualMonthlyRent,
