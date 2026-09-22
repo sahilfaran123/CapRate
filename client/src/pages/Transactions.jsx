@@ -1,10 +1,12 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import {
   listTransactions, assignTransaction, assignTransactionsBulk,
   createTransactionRule, deleteTransactionRule, clearTransactionAssignment,
   formatCurrency,
 } from '../services/api.js';
+import { computeMenuPosition } from '../utils/menuPosition.js';
 
 /**
  * Transaction assignment.
@@ -62,8 +64,50 @@ function AssignmentBadge({ row, propertyById }) {
 }
 
 // ─── Per-row assign control ──────────────────────────────────────────────────
+const MENU_WIDTH   = 256;   // matches w-64
+const MENU_GAP     = 4;
+const VIEWPORT_PAD = 8;
+
+/**
+ * The menu is rendered into a portal with fixed positioning rather than being
+ * absolutely positioned inside the row. Two things clip it otherwise: the table
+ * container sets `overflow-hidden` to keep its rounded corners, and rows near
+ * the bottom of the window run the menu off-screen. A portal escapes every
+ * ancestor's overflow, and measuring the trigger lets it flip upward when there
+ * is more room above — so the last row is just as usable as the first.
+ */
 function AssignMenu({ row, properties, onAssign, onAssignSeries, onClear, busy }) {
   const [open, setOpen] = useState(false);
+  const [pos,  setPos]  = useState(null);
+  const btnRef = useRef(null);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+
+    const place = () => {
+      const el = btnRef.current;
+      if (!el) return;
+      setPos(computeMenuPosition(
+        el.getBoundingClientRect(),
+        window.innerWidth,
+        window.innerHeight,
+        { width: MENU_WIDTH, gap: MENU_GAP, pad: VIEWPORT_PAD },
+      ));
+    };
+
+    place();
+    // Capture phase: the app scrolls an inner container, not the window, so a
+    // bubbling listener on window would never fire.
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
 
   const choose = async (target, propertyId, whole) => {
     setOpen(false);
@@ -71,80 +115,98 @@ function AssignMenu({ row, properties, onAssign, onAssignSeries, onClear, busy }
     else       await onAssign(row, target, propertyId);
   };
 
+  const menu = (
+    <>
+      {/* Click-away layer */}
+      <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+      <div
+        role="menu"
+        style={{
+          position:  'fixed',
+          left:      pos?.left,
+          top:       pos?.top,
+          bottom:    pos?.bottom,
+          width:     MENU_WIDTH,
+          maxHeight: pos?.maxHeight,
+          // Hidden until measured, so it never flashes in the wrong place
+          visibility: pos ? 'visible' : 'hidden',
+        }}
+        className="z-50 overflow-y-auto bg-white border border-gray-200
+                   rounded-xl shadow-lg py-1.5 text-left"
+      >
+        <p className="px-3 py-1 text-[10px] uppercase tracking-wide text-gray-400">
+          This transaction
+        </p>
+        {properties.map(p => (
+          <button
+            key={p.id}
+            onClick={() => choose('property', p.id, false)}
+            className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-indigo-50"
+          >
+            {shortAddress(p.address)}
+          </button>
+        ))}
+        <button
+          onClick={() => choose('personal', null, false)}
+          className="w-full text-left px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50"
+        >
+          Personal — ignore
+        </button>
+
+        {row.matchKey && (
+          <>
+            <div className="border-t border-gray-100 my-1" />
+            <p className="px-3 py-1 text-[10px] uppercase tracking-wide text-gray-400">
+              Every transaction like this
+            </p>
+            {properties.map(p => (
+              <button
+                key={`s_${p.id}`}
+                onClick={() => choose('property', p.id, true)}
+                className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-indigo-50"
+              >
+                All → {shortAddress(p.address)}
+              </button>
+            ))}
+            <button
+              onClick={() => choose('personal', null, true)}
+              className="w-full text-left px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50"
+            >
+              All → Personal
+            </button>
+          </>
+        )}
+
+        {row.source === 'override' && (
+          <>
+            <div className="border-t border-gray-100 my-1" />
+            <button
+              onClick={() => { setOpen(false); onClear(row); }}
+              className="w-full text-left px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50"
+            >
+              Clear my assignment
+            </button>
+          </>
+        )}
+      </div>
+    </>
+  );
+
   return (
     <div className="relative">
       <button
+        ref={btnRef}
         onClick={() => setOpen(o => !o)}
         disabled={busy}
+        aria-haspopup="menu"
+        aria-expanded={open}
         className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600
                    hover:border-indigo-300 hover:text-indigo-600 transition-colors disabled:opacity-50"
       >
         Assign ▾
       </button>
 
-      {open && (
-        <>
-          {/* Click-away layer */}
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 z-50 w-64 bg-white border border-gray-200
-                          rounded-xl shadow-lg py-1.5 text-left">
-            <p className="px-3 py-1 text-[10px] uppercase tracking-wide text-gray-400">
-              This transaction
-            </p>
-            {properties.map(p => (
-              <button
-                key={p.id}
-                onClick={() => choose('property', p.id, false)}
-                className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-indigo-50"
-              >
-                {shortAddress(p.address)}
-              </button>
-            ))}
-            <button
-              onClick={() => choose('personal', null, false)}
-              className="w-full text-left px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50"
-            >
-              Personal — ignore
-            </button>
-
-            {row.matchKey && (
-              <>
-                <div className="border-t border-gray-100 my-1" />
-                <p className="px-3 py-1 text-[10px] uppercase tracking-wide text-gray-400">
-                  Every transaction like this
-                </p>
-                {properties.map(p => (
-                  <button
-                    key={`s_${p.id}`}
-                    onClick={() => choose('property', p.id, true)}
-                    className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-indigo-50"
-                  >
-                    All → {shortAddress(p.address)}
-                  </button>
-                ))}
-                <button
-                  onClick={() => choose('personal', null, true)}
-                  className="w-full text-left px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50"
-                >
-                  All → Personal
-                </button>
-              </>
-            )}
-
-            {row.source === 'override' && (
-              <>
-                <div className="border-t border-gray-100 my-1" />
-                <button
-                  onClick={() => { setOpen(false); onClear(row); }}
-                  className="w-full text-left px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50"
-                >
-                  Clear my assignment
-                </button>
-              </>
-            )}
-          </div>
-        </>
-      )}
+      {open && createPortal(menu, document.body)}
     </div>
   );
 }
